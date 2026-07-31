@@ -1,0 +1,76 @@
+/* Glassmorphism Panel Utilities */
+.glass-panel {
+  background: rgba(13, 22, 45, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+}
+
+.glass-panel-glow {
+  background: rgba(13, 22, 45, 0.9);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  box-shadow: 0 0 20px rgba(0, 242, 254, 0.15);
+  border-radius: 14px;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(59, 130, 246, 0.4);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #00F2FE;
+}
+
+/* Leaflet Container Overrides */
+.leaflet-container {
+  width: 100% !important;
+  height: 100% !important;
+  min-height: 500px;
+  background-color: #080E21 !important;
+  border-radius: 12px;
+}
+
+.leaflet-popup-content-wrapper {
+  background: rgba(10, 18, 40, 0.95) !important;
+  color: #fff !important;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  border-radius: 10px !important;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5) !important;
+}
+
+.leaflet-popup-tip {
+  background: rgba(10, 18, 40, 0.95) !important;
+}
+
+/* Pulsing Dam Marker Animation */
+@keyframes pulseGlow {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 242, 254, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 14px rgba(0, 242, 254, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 242, 254, 0);
+  }
+}
+
+.pulsing-dam-icon {
+  background: #00F2FE;
+  border: 2px solid #FFFFFF;
+  border-radius: 50%;
+  animation: pulseGlow 2s infinite;
+}
