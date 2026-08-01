@@ -2,8 +2,6 @@ import os
 import numpy as np
 import rasterio
 from typing import Dict, Any
-
-# File location for soil data raster
 SOIL_FILE_PATH = "E:/soildata.tif"
 
 class SoilProcessor:

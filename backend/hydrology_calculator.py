@@ -57,12 +57,7 @@ class HydrologyCalculator:
         soil_infiltration_mm_hr: float = 6.0,
         est_cost_lakhs: float = 18.0
     ) -> Dict[str, Any]:
-        """
-        Estimates underground water level rise (in meters) and the benefited land area.
-        """
-        soil_yield_ratio = 0.12  # Standard soil yield ratio for alluvial ground
-        
-        # Calculate recharge spread area based on stored water volume
+        soil_yield_ratio = 0.12
         recharge_area_ha = round(5.0 + math.sqrt(captured_ml) * 3.5, 1)
         recharge_area_acres = round(recharge_area_ha * HA_TO_ACRES)
         
@@ -86,7 +81,5 @@ class HydrologyCalculator:
             "annual_irrigation_value_lakhs": annual_irrigation_value_lakhs,
             "payback_months": payback_months
         }
-
-# Shared instance for use across the application
 hydrology_calc = HydrologyCalculator()
 

@@ -3,14 +3,8 @@ import math
 import numpy as np
 import rasterio
 from typing import Dict, Any, List, Tuple
-
-# File location for Digital Elevation Model (DEM) raster file
 DEM_FILE_PATH = "E:/output_hh.tif"
 
-# ─── Known Water Body Exclusion Zones ────────────────────────────────────────
-# These are existing lakes, tanks, and reservoirs along the Kollidam basin.
-# The algorithm will NOT place candidate check-dam sites inside these areas
-# since the storage capacity already exists there.
 WATER_BODY_EXCLUSION_ZONES = [
     {
         "name": "Veeranam Lake",
@@ -45,19 +39,14 @@ WATER_BODY_EXCLUSION_ZONES = [
 ]
 
 class DEMProcessor:
-    """
-    Reads ground elevation data (30m resolution), calculates terrain slope 
-    and aspect angles, and finds potential locations for dams.
-    """
     def __init__(self, filepath: str = DEM_FILE_PATH):
         self.filepath = filepath
         self.dataset = None
         self.array = None
-        self.cell_size_m = 30.0  # Cell size of each grid square in meters
+        self.cell_size_m = 30.0 
         self.load_raster()
 
     def load_raster(self) -> bool:
-        """Opens the elevation file and loads terrain values into memory."""
         if os.path.exists(self.filepath):
             try:
                 self.dataset = rasterio.open(self.filepath)
@@ -72,7 +61,6 @@ class DEMProcessor:
             return False
 
     def get_info(self) -> Dict[str, Any]:
-        """Returns height statistics and summary information for the elevation map."""
         if self.dataset is None:
             return {"error": "DEM raster not loaded"}
         
@@ -99,7 +87,6 @@ class DEMProcessor:
         }
 
     def get_elevation_at_point(self, lat: float, lng: float) -> float:
-        """Returns the ground height in meters at a given latitude and longitude coordinate."""
         if self.dataset is None:
             return 45.0
         
@@ -113,31 +100,24 @@ class DEMProcessor:
             return 45.0
 
     def calculate_slope_and_aspect(self, lat: float, lng: float) -> Tuple[float, float]:
-        """
-        Calculates how steep the land is (slope in degrees) and 
-        which direction the slope faces (aspect in degrees).
-        """
+
         if self.dataset is None:
             return (0.8, 180.0)
         
         try:
             row_idx, col_idx = self.dataset.index(lng, lat)
             if 1 <= row_idx < self.dataset.height - 1 and 1 <= col_idx < self.dataset.width - 1:
-                # Get 3x3 grid of surrounding elevation values
                 neighborhood_grid = self.array[row_idx-1:row_idx+2, col_idx-1:col_idx+2]
                 
-                # Calculate height changes along horizontal (X) and vertical (Y) axes
                 change_in_x = ((neighborhood_grid[0, 2] + 2*neighborhood_grid[1, 2] + neighborhood_grid[2, 2]) - 
                                (neighborhood_grid[0, 0] + 2*neighborhood_grid[1, 0] + neighborhood_grid[2, 0])) / (8 * self.cell_size_m)
                 
                 change_in_y = ((neighborhood_grid[2, 0] + 2*neighborhood_grid[2, 1] + neighborhood_grid[2, 2]) - 
                                (neighborhood_grid[0, 0] + 2*neighborhood_grid[0, 1] + neighborhood_grid[0, 2])) / (8 * self.cell_size_m)
                 
-                # Compute steepness angle in degrees
                 slope_radians = math.atan(math.sqrt(change_in_x**2 + change_in_y**2))
                 slope_degrees = round(math.degrees(slope_radians), 2)
                 
-                # Compute direction angle facing in degrees
                 aspect_radians = math.atan2(change_in_y, -change_in_x)
                 aspect_degrees = math.degrees(aspect_radians)
                 if aspect_degrees < 0:
@@ -149,10 +129,6 @@ class DEMProcessor:
             return (0.8, 180.0)
 
     def is_inside_exclusion_zone(self, lat: float, lng: float) -> dict:
-        """
-        Returns the exclusion zone if a coordinate falls inside a known water body / existing dam.
-        Returns None if the coordinate is safe to place a check dam.
-        """
         for zone in WATER_BODY_EXCLUSION_ZONES:
             if (zone["lat_min"] <= lat <= zone["lat_max"] and
                     zone["lng_min"] <= lng <= zone["lng_max"]):
@@ -164,11 +140,6 @@ class DEMProcessor:
         meander_coords: List[List[float]], 
         num_sites: int = 5
     ) -> List[Dict[str, Any]]:
-        """
-        Scans river coordinates using elevation data to find flat, 
-        suitable places for building water structures.
-        Automatically excludes any point inside a known lake, tank, or existing dam.
-        """
         if not meander_coords:
             return []
 
@@ -198,10 +169,8 @@ class DEMProcessor:
         if excluded_count > 0:
             print(f"[DEMProcessor] Excluded {excluded_count} coords inside water body zones")
 
-        # Sort points to prioritize gentle slopes and lower heights
         collected_points.sort(key=lambda item: (item["slope"], item["elev"]))
         
-        # Pick well-spaced locations along the river
         selected_locations = []
         minimum_spacing = max(5, len(meander_coords) // (num_sites + 1))
         
@@ -211,10 +180,7 @@ class DEMProcessor:
             if all(abs(location["index"] - picked["index"]) >= minimum_spacing for picked in selected_locations):
                 selected_locations.append(location)
 
-        # Re-sort into river flow order (from start to end)
         selected_locations.sort(key=lambda item: item["index"])
         return selected_locations
-
-# Shared instance for use across the application
 dem_processor = DEMProcessor()
 
