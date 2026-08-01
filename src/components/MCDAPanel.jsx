@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mountain, Droplets, Grid, Sprout, Waves } from 'lucide-react';
+import { Mountain, Droplets, Grid, Sprout, Waves, Layers } from 'lucide-react';
 import { calculateMCDAScore, MCDA_PROFILES } from '../utils/hydrology';
 
 export default function MCDAPanel({ 
@@ -9,7 +9,9 @@ export default function MCDAPanel({
   selectedDam,
   onSelectDam,
   activeModel,
-  onSelectModel
+  onSelectModel,
+  layers,
+  setLayers
 }) {
   const sliderConfig = [
     { key: 'slope', label: 'Terrain slope', icon: Mountain, hint: 'Lower slope is better' },
@@ -22,80 +24,131 @@ export default function MCDAPanel({
   const selectableProfiles = Object.entries(MCDA_PROFILES).filter(([key]) => !key.startsWith('ml-'));
 
   return (
-    <div className="w-full bg-white p-5 flex flex-col justify-between h-[calc(100vh-72px)] border-l border-slate-200">
-      {/* Upper Section */}
-      <div className="space-y-4 flex-shrink-0">
-        {/* Panel Header */}
+    <div className="w-full bg-white p-4 flex flex-col h-[calc(100vh-72px)] border-l border-slate-200 overflow-y-auto space-y-5 scrollbar-thin scrollbar-thumb-slate-200">
+      
+      {/* 1. Model Presets Header */}
+      <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-bold text-slate-800">Decision criteria</h2>
-          <span className="text-[10px] text-slate-400 font-medium">Weights total 100%</span>
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">Decision Criteria & Profile</h2>
+          <span className="text-[10px] text-slate-400 font-medium">Sum: 100%</span>
         </div>
 
-        {/* Presets */}
         {activeModel && onSelectModel && (
-          <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200/60">
-            {selectableProfiles.map(([key, profile]) => {
+          <div className="grid grid-cols-2 gap-1.5 bg-slate-100/70 p-1 rounded-lg border border-slate-200/80">
+            {selectableProfiles.map(([key]) => {
               const isSelected = activeModel === key;
               return (
                 <button
                   key={key}
                   onClick={() => onSelectModel(key)}
-                  className={`py-1.5 px-3 rounded text-center text-xs font-bold transition ${
+                  className={`py-1.5 px-2 rounded text-center text-xs font-bold transition ${
                     isSelected 
                       ? 'bg-[#0f766e] text-white shadow-sm' 
-                      : 'text-slate-500 hover:text-slate-800'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
-                  {key === 'mcda-standard' ? 'Standard' : 'Slope-optimized'}
+                  {key === 'mcda-standard' ? 'Standard' : 'Slope-Optimized'}
                 </button>
               );
             })}
           </div>
         )}
-
-        {/* Sliders Grid */}
-        <div className="space-y-3.5 pt-1">
-          {sliderConfig.map(s => {
-            const val = weights[s.key] || 0;
-            const Icon = s.icon;
-            const pct = Math.min(100, (val / 60) * 100);
-
-            return (
-              <div key={s.key} className="flex gap-3 items-start">
-                <Icon className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
-                
-                <div className="flex-1 space-y-1">
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
-                    <span>{s.label}</span>
-                    <span className="font-mono text-[#0f766e]">{val}%</span>
-                  </div>
-                  
-                  <input 
-                    type="range"
-                    min="0"
-                    max="60"
-                    step="5"
-                    value={val}
-                    onChange={(e) => onWeightChange(s.key, parseInt(e.target.value))}
-                    style={{
-                      background: `linear-gradient(to right, #0f766e ${pct}%, #e2e8f0 ${pct}%)`
-                    }}
-                    className="w-full h-1 rounded-lg appearance-none cursor-pointer"
-                  />
-                  
-                  <div className="text-[9px] text-slate-400 font-medium leading-none">{s.hint}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
       </div>
 
-      {/* Middle Section: Ranked Candidate Sites (Scaled up to fill height smoothly) */}
-      <div className="flex-grow flex flex-col min-h-0 pt-4 border-t border-slate-150 my-3 justify-end">
-        <h3 className="text-xs font-bold text-slate-800 mb-2.5 flex-shrink-0">Ranked candidate sites</h3>
+      {/* 2. Weight Sliders */}
+      <div className="space-y-3.5 bg-slate-50/60 p-3 rounded-lg border border-slate-200/60">
+        {sliderConfig.map(s => {
+          const val = weights[s.key] || 0;
+          const Icon = s.icon;
+          const pct = Math.min(100, (val / 60) * 100);
+
+          return (
+            <div key={s.key} className="space-y-1">
+              <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                <span className="flex items-center gap-1.5">
+                  <Icon className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
+                  {s.label}
+                </span>
+                <span className="font-mono text-[#0f766e] font-extrabold">{val}%</span>
+              </div>
+              
+              <input 
+                type="range"
+                min="0"
+                max="60"
+                step="5"
+                value={val}
+                onChange={(e) => onWeightChange(s.key, parseInt(e.target.value))}
+                style={{
+                  background: `linear-gradient(to right, #0f766e ${pct}%, #cbd5e1 ${pct}%)`
+                }}
+                className="w-full h-1.5 rounded-lg appearance-none cursor-pointer"
+              />
+              <div className="text-[9.5px] text-slate-400 font-medium text-right">{s.hint}</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 3. Layer Toggles (Minimalist Inline Controls) */}
+      {layers && setLayers && (
+        <div className="bg-slate-50/60 p-3 rounded-lg border border-slate-200/60 space-y-2">
+          <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-800 mb-1">
+            <Layers className="w-3.5 h-3.5 text-[#0f766e]" />
+            <span>Spatial Map Layers</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-[11px] font-semibold text-slate-650">
+            <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+              <input 
+                type="checkbox" 
+                checked={layers.riverPath} 
+                onChange={(e) => setLayers({...layers, riverPath: e.target.checked})}
+                className="rounded text-[#0f766e] focus:ring-0 accent-[#0f766e]"
+              />
+              <span>River Network</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+              <input 
+                type="checkbox" 
+                checked={layers.candidateSites} 
+                onChange={(e) => setLayers({...layers, candidateSites: e.target.checked})}
+                className="rounded text-[#0f766e] focus:ring-0 accent-[#0f766e]"
+              />
+              <span>Check Dams</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+              <input 
+                type="checkbox" 
+                checked={layers.rechargeZones} 
+                onChange={(e) => setLayers({...layers, rechargeZones: e.target.checked})}
+                className="rounded text-[#0f766e] focus:ring-0 accent-[#0f766e]"
+              />
+              <span>Recharge Zones</span>
+            </label>
+
+            <label className="flex items-center gap-1.5 cursor-pointer hover:text-slate-900">
+              <input 
+                type="checkbox" 
+                checked={layers.floodZone || false} 
+                onChange={(e) => setLayers({...layers, floodZone: e.target.checked})}
+                className="rounded text-rose-500 focus:ring-0 accent-rose-500"
+              />
+              <span>Flood Inundation</span>
+            </label>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Ranked Candidate Sites */}
+      <div className="space-y-2.5 pt-1">
+        <h3 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
+          Ranked Candidate Sites ({dams.length})
+        </h3>
         
-        <div className="flex-grow space-y-3.5 pr-0.5">
+        <div className="space-y-2">
           {dams.slice(0, 5).map(dam => {
             const isSelected = selectedDam && selectedDam.id === dam.id;
             const liveScore = calculateMCDAScore(dam, weights);
@@ -104,44 +157,44 @@ export default function MCDAPanel({
               <div
                 key={dam.id}
                 onClick={() => onSelectDam(dam)}
-                className={`p-3.5 rounded-lg cursor-pointer border flex items-center justify-between transition ${
+                className={`p-3 rounded-lg cursor-pointer border flex items-center justify-between transition ${
                   isSelected 
-                    ? 'bg-[#f0fdfa] border-[#0f766e] shadow-sm ring-1 ring-[#0f766e]/20' 
-                    : 'bg-white border-slate-150 hover:bg-slate-50/50 hover:border-slate-200'
+                    ? 'bg-[#f0fdfa] border-[#0f766e] shadow-sm ring-1 ring-[#0f766e]/30' 
+                    : 'bg-white border-slate-200 hover:bg-slate-50 hover:border-slate-300'
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  {/* Larger Rank Badge */}
-                  <div className={`w-9.5 h-9.5 rounded flex items-center justify-center font-bold text-xs flex-shrink-0 ${
-                    dam.rank === 1 ? 'bg-[#0f766e] text-white' : 'bg-slate-100 text-slate-500'
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`w-8 h-8 rounded flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                    dam.rank === 1 ? 'bg-[#0f766e] text-white' : 'bg-slate-100 text-slate-600'
                   }`}>
-                    {dam.rank}
+                    #{dam.rank}
                   </div>
 
                   <div className="min-w-0">
                     <h4 className="text-xs font-bold text-slate-800 leading-tight truncate">
                       {dam.regionName || dam.name}
                     </h4>
-                    <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate">
+                    <p className="text-[10px] text-slate-400 font-mono mt-0.5 truncate">
                       {dam.lat.toFixed(4)}° N, {dam.lng.toFixed(4)}° E
                     </p>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-3.5 text-right flex-shrink-0 pl-1">
-                  <div className="text-[9.5px] text-slate-400 leading-tight font-semibold">
-                    <div>STORAGE <span className="font-extrabold text-slate-700">{dam.recStorageML} ML</span></div>
-                    <div>GW RISE <span className="font-extrabold text-[#0f766e]">+{dam.aquiferRiseM} m</span></div>
+                <div className="flex items-center gap-3 text-right flex-shrink-0 pl-2">
+                  <div className="text-[10px] text-slate-500 leading-tight font-semibold">
+                    <div>{dam.recStorageML} ML</div>
+                    <div className="text-[#0f766e]">+{dam.aquiferRiseM} m GW</div>
                   </div>
-                  <span className="text-xl font-extrabold text-[#0f766e] font-mono w-6 text-center">
+                  <div className="text-lg font-extrabold text-[#0f766e] font-mono w-7 text-center">
                     {liveScore}
-                  </span>
+                  </div>
                 </div>
               </div>
             );
           })}
         </div>
       </div>
+
     </div>
   );
 }
