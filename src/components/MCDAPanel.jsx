@@ -1,105 +1,102 @@
 import React from 'react';
-import { Sliders, Sparkles, CheckCircle2, MapPin, Droplets, Layers, Building2 } from 'lucide-react';
+import { Mountain, Droplets, Grid, Sprout, Waves } from 'lucide-react';
 import { calculateMCDAScore, MCDA_PROFILES } from '../utils/hydrology';
 
 export default function MCDAPanel({ 
-  dams, 
+  dams,
   weights, 
   onWeightChange, 
-  selectedDam, 
+  selectedDam,
   onSelectDam,
   activeModel,
   onSelectModel
 }) {
   const sliderConfig = [
-    { key: 'slope', label: 'Terrain Slope', icon: '📐', hint: 'Favors gentle channel gradients (<2°)' },
-    { key: 'flow', label: 'Flow Accumulation', icon: '🌊', hint: 'High catchment stream network order' },
-    { key: 'soil', label: 'Soil Permeability', icon: '💧', hint: 'Alluvial infiltration capacity (HSG B/C)' },
-    { key: 'farmland', label: 'Farmland Proximity', icon: '🌾', hint: 'Distance to agricultural clusters' },
-    { key: 'width', label: 'Stream Stability', icon: '🏗️', hint: 'Narrow cross-section for low cost' }
+    { key: 'slope', label: 'Terrain slope', icon: Mountain, hint: 'Lower slope is better' },
+    { key: 'flow', label: 'Flow accumulation', icon: Droplets, hint: 'Higher flow is better' },
+    { key: 'soil', label: 'Soil permeability', icon: Grid, hint: 'Higher permeability is better' },
+    { key: 'farmland', label: 'Farmland proximity', icon: Sprout, hint: 'Closer fields are better' },
+    { key: 'width', label: 'Stream stability', icon: Waves, hint: 'More stable is better' }
   ];
 
-  return (
-    <div className="w-full h-[540px] overflow-y-auto scrollbar-thin glass-panel p-5 space-y-5 pr-3">
-      {/* Panel Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-blue-900/50 pb-3 gap-2">
-        <div className="flex items-center gap-2 text-cyan-400">
-          <Sliders className="w-5 h-5" />
-          <h2 className="text-base font-bold tracking-wide">Multi-Criteria AI Decision Engine</h2>
-        </div>
-        <span className="text-[11px] text-slate-400 font-mono">COP30 DEM Spatial Weighting</span>
-      </div>
+  const selectableProfiles = Object.entries(MCDA_PROFILES).filter(([key]) => !key.startsWith('ml-'));
 
-      {/* Decision Profile Preset Pills */}
-      {activeModel && onSelectModel && (
-        <div className="grid grid-cols-2 gap-2">
-          {Object.entries(MCDA_PROFILES).map(([key, profile]) => {
-            const isSelected = activeModel === key;
+  return (
+    <div className="w-full bg-white p-5 flex flex-col justify-between h-[calc(100vh-72px)] border-l border-slate-200">
+      {/* Upper Section */}
+      <div className="space-y-4 flex-shrink-0">
+        {/* Panel Header */}
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-bold text-slate-800">Decision criteria</h2>
+          <span className="text-[10px] text-slate-400 font-medium">Weights total 100%</span>
+        </div>
+
+        {/* Presets */}
+        {activeModel && onSelectModel && (
+          <div className="grid grid-cols-2 gap-2 bg-slate-50 p-1 rounded-lg border border-slate-200/60">
+            {selectableProfiles.map(([key, profile]) => {
+              const isSelected = activeModel === key;
+              return (
+                <button
+                  key={key}
+                  onClick={() => onSelectModel(key)}
+                  className={`py-1.5 px-3 rounded text-center text-xs font-bold transition ${
+                    isSelected 
+                      ? 'bg-[#0f766e] text-white shadow-sm' 
+                      : 'text-slate-500 hover:text-slate-800'
+                  }`}
+                >
+                  {key === 'mcda-standard' ? 'Standard' : 'Slope-optimized'}
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Sliders Grid */}
+        <div className="space-y-3.5 pt-1">
+          {sliderConfig.map(s => {
+            const val = weights[s.key] || 0;
+            const Icon = s.icon;
+            const pct = Math.min(100, (val / 60) * 100);
+
             return (
-              <button
-                key={key}
-                onClick={() => onSelectModel(key)}
-                className={`p-2.5 rounded-xl text-left border transition ${
-                  isSelected 
-                    ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300 ring-1 ring-cyan-400' 
-                    : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1">
-                  <span className={`px-2 py-0.5 text-[9px] font-extrabold rounded-md ${
-                    isSelected ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-300'
-                  }`}>
-                    {profile.badge}
-                  </span>
-                  <span className="text-[10px] font-bold text-cyan-400 font-mono">
-                    {profile.score}
-                  </span>
+              <div key={s.key} className="flex gap-3 items-start">
+                <Icon className="w-4 h-4 text-slate-500 mt-0.5 flex-shrink-0" />
+                
+                <div className="flex-1 space-y-1">
+                  <div className="flex items-center justify-between text-xs font-bold text-slate-700">
+                    <span>{s.label}</span>
+                    <span className="font-mono text-[#0f766e]">{val}%</span>
+                  </div>
+                  
+                  <input 
+                    type="range"
+                    min="0"
+                    max="60"
+                    step="5"
+                    value={val}
+                    onChange={(e) => onWeightChange(s.key, parseInt(e.target.value))}
+                    style={{
+                      background: `linear-gradient(to right, #0f766e ${pct}%, #e2e8f0 ${pct}%)`
+                    }}
+                    className="w-full h-1 rounded-lg appearance-none cursor-pointer"
+                  />
+                  
+                  <div className="text-[9px] text-slate-400 font-medium leading-none">{s.hint}</div>
                 </div>
-                <div className="text-xs font-bold line-clamp-1">{profile.name}</div>
-              </button>
+              </div>
             );
           })}
         </div>
-      )}
-
-      {/* AHP Weight Sliders Grid */}
-      <div className="grid grid-cols-1 gap-4 bg-slate-900/60 p-4 rounded-xl border border-blue-900/40">
-        {sliderConfig.map(s => {
-          const val = weights[s.key] || 0;
-          return (
-            <div key={s.key} className="space-y-1.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-semibold text-slate-200 flex items-center gap-1">
-                  <span>{s.icon}</span> {s.label}
-                </span>
-                <span className="font-mono text-cyan-400 font-bold">{val}%</span>
-              </div>
-
-              <input 
-                type="range"
-                min="0"
-                max="60"
-                step="5"
-                value={val}
-                onChange={(e) => onWeightChange(s.key, parseInt(e.target.value))}
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-              />
-
-              <div className="text-[10px] text-slate-400">{s.hint}</div>
-            </div>
-          );
-        })}
       </div>
 
-      {/* Ranked Candidate Check-Dam Location Cards */}
-      <div className="space-y-2 pt-1">
-        <div className="flex flex-col gap-1 text-xs font-bold text-slate-300">
-          <span>RANKED CANDIDATE CHECK-DAM LOCATIONS ({dams.length})</span>
-          <span className="text-[10px] text-slate-400 font-mono">Click card to inspect on map & profile graph</span>
-        </div>
-
-        <div className="grid grid-cols-1 gap-3">
-          {dams.map(dam => {
+      {/* Middle Section: Ranked Candidate Sites (Scaled up to fill height smoothly) */}
+      <div className="flex-grow flex flex-col min-h-0 pt-4 border-t border-slate-150 my-3 justify-end">
+        <h3 className="text-xs font-bold text-slate-800 mb-2.5 flex-shrink-0">Ranked candidate sites</h3>
+        
+        <div className="flex-grow space-y-3.5 pr-0.5">
+          {dams.slice(0, 5).map(dam => {
             const isSelected = selectedDam && selectedDam.id === dam.id;
             const liveScore = calculateMCDAScore(dam, weights);
 
@@ -107,57 +104,38 @@ export default function MCDAPanel({
               <div
                 key={dam.id}
                 onClick={() => onSelectDam(dam)}
-                className={`p-3.5 rounded-xl cursor-pointer transition-all border ${
+                className={`p-3.5 rounded-lg cursor-pointer border flex items-center justify-between transition ${
                   isSelected 
-                    ? 'bg-cyan-500/15 border-cyan-400 shadow-lg shadow-cyan-500/20 ring-1 ring-cyan-400' 
-                    : 'bg-slate-900/80 border-slate-800 hover:border-slate-700 hover:bg-slate-800/50'
+                    ? 'bg-[#f0fdfa] border-[#0f766e] shadow-sm ring-1 ring-[#0f766e]/20' 
+                    : 'bg-white border-slate-150 hover:bg-slate-50/50 hover:border-slate-200'
                 }`}
               >
-                {/* Header Rank Badge & Score */}
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`px-2 py-0.5 text-[10px] font-extrabold rounded-md ${
-                    isSelected ? 'bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-300'
+                <div className="flex items-center gap-3 min-w-0">
+                  {/* Larger Rank Badge */}
+                  <div className={`w-9.5 h-9.5 rounded flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                    dam.rank === 1 ? 'bg-[#0f766e] text-white' : 'bg-slate-100 text-slate-500'
                   }`}>
-                    #{dam.rank} Site
-                  </span>
+                    {dam.rank}
+                  </div>
 
-                  <div className="text-right">
-                    <span className="text-sm font-extrabold text-cyan-400 font-mono">
-                      {liveScore}/100
-                    </span>
+                  <div className="min-w-0">
+                    <h4 className="text-xs font-bold text-slate-800 leading-tight truncate">
+                      {dam.regionName || dam.name}
+                    </h4>
+                    <p className="text-[9px] text-slate-400 font-mono mt-0.5 truncate">
+                      {dam.lat.toFixed(4)}° N, {dam.lng.toFixed(4)}° E
+                    </p>
                   </div>
                 </div>
 
-                {/* Location Name & District */}
-                <h3 className="text-xs font-bold text-slate-100 line-clamp-1 mb-0.5">
-                  {dam.regionName || dam.name}
-                </h3>
-
-                <p className="text-[10px] text-slate-400 mb-2">
-                  {dam.district} ({dam.lat.toFixed(3)}°N, {dam.lng.toFixed(3)}°E)
-                </p>
-
-                {/* Key Telemetry Breakdown */}
-                <div className="space-y-1 text-[10px] border-t border-slate-800/80 pt-2 font-mono">
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>DEM Elev:</span>
-                    <span className="text-cyan-300 font-bold">{dam.cop30_elevation_m} m</span>
+                <div className="flex items-center gap-3.5 text-right flex-shrink-0 pl-1">
+                  <div className="text-[9.5px] text-slate-400 leading-tight font-semibold">
+                    <div>STORAGE <span className="font-extrabold text-slate-700">{dam.recStorageML} ML</span></div>
+                    <div>GW RISE <span className="font-extrabold text-[#0f766e]">+{dam.aquiferRiseM} m</span></div>
                   </div>
-
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>Rec Storage:</span>
-                    <span className="text-cyan-300 font-bold">{dam.recStorageML} ML</span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>Water Table:</span>
-                    <span className="text-emerald-400 font-bold">+{dam.aquiferRiseM} m</span>
-                  </div>
-
-                  <div className="flex items-center justify-between text-slate-400">
-                    <span>Cropland:</span>
-                    <span className="text-amber-400 font-bold">{dam.farmlandAcres ? dam.farmlandAcres.toLocaleString() : 0} Acres</span>
-                  </div>
+                  <span className="text-xl font-extrabold text-[#0f766e] font-mono w-6 text-center">
+                    {liveScore}
+                  </span>
                 </div>
               </div>
             );

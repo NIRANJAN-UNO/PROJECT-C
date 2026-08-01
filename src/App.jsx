@@ -2,21 +2,19 @@ import React, { useState, useMemo, useEffect } from 'react';
 import Header from './components/Header';
 import MapView from './components/MapView';
 import MCDAPanel from './components/MCDAPanel';
-import HydroCalculator from './components/HydroCalculator';
-import ElevationChart from './components/ElevationChart';
-import CaseStudySimulator from './components/CaseStudySimulator';
 import GEEAnalyticsModal from './components/GEEAnalyticsModal';
-import MLBenchmarkPanel from './components/MLBenchmarkPanel';
+import CaseStudySimulator from './components/CaseStudySimulator';
+import HydroCalculator from './components/HydroCalculator';
 
 import { HIGH_RES_RIVER_MEANDER } from './data/kollidamData';
-import { scanRiverChannelForDams, HA_TO_ACRES, calculateSCSCNRunoff, calculateGroundwaterImpact } from './utils/hydrology';
+import { scanRiverChannelForDams, HA_TO_ACRES, calculateGroundwaterImpact } from './utils/hydrology';
 
 export default function App() {
   const [activeMode, setActiveMode] = useState('ai-network'); // 'ai-network' | 'case-study' | 'custom-sim'
-  const [activeModel, setActiveModel] = useState('mcda-standard'); // 'mcda-standard' | 'mcda-slope' | 'mcda-soil' | 'ml-readiness'
-  const [rainfallMM, setRainfallMM] = useState(150);
+  const [activeModel, setActiveModel] = useState('mcda-standard'); // 'mcda-standard' | 'mcda-slope'
   const [customDam, setCustomDam] = useState(null);
   const [isGEEOpen, setIsGEEOpen] = useState(false);
+  const [rainfallMM, setRainfallMM] = useState(150);
 
   // Dynamic candidate dams state (fetched from Python FastAPI backend)
   const [apiDams, setApiDams] = useState(null);
@@ -80,8 +78,7 @@ export default function App() {
   const [layers, setLayers] = useState({
     riverPath: true,
     candidateSites: true,
-    rechargeZones: true,
-    floodZone: false
+    rechargeZones: true
   });
 
   // Handle MCDA Weight changes
@@ -98,7 +95,6 @@ export default function App() {
     let sampledSlope = 0.8;
 
     try {
-      // Live HTTP API call to Python FastAPI GIS Backend querying E:\output_hh.tif!
       const res = await fetch(`http://127.0.0.1:8000/api/dem/elevation?lat=${lat}&lng=${lng}`);
       if (res.ok) {
         const data = await res.json();
@@ -114,16 +110,13 @@ export default function App() {
     const localHeight = 3.5;
     const localWidth = 220;
     
-    // Dynamic local storage based on exact terrain slope: gentle slopes hold more volume!
     const recStorageML = Number(Math.max(5.0, Math.min(45.0, (localWidth * localHeight * 0.015) / Math.max(0.2, sampledSlope))).toFixed(1));
-    
-    // Local groundwater table rise & cropland recharge computed from local storage
     const gw = calculateGroundwaterImpact(recStorageML, 5.5);
 
     const newDam = {
       id: "CD-CUSTOM",
       rank: "?",
-      name: `Virtual Check Dam (${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E) | DEM: ${sampledElev}m`,
+      name: `Virtual Check Dam (${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E)`,
       district: "Custom Virtual Site",
       lat: lat,
       lng: lng,
@@ -182,104 +175,68 @@ export default function App() {
     return Math.round(totalFarmlandHa * HA_TO_ACRES);
   }, [totalFarmlandHa]);
 
-  const handleModeChange = (mode) => {
-    setActiveMode(mode);
-    if (mode === 'case-study') {
-      setLayers(prev => ({ ...prev, floodZone: true }));
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-[#070B19] text-slate-100 p-4 md:p-6 space-y-6">
-      {/* Top Header & Telemetry Bar */}
-      <Header 
-        activeMode={activeMode}
-        setActiveMode={handleModeChange}
-        totalCapturedML={totalCapturedML}
-        totalTMC={totalTMC}
-        avgDeltaH={avgDeltaH}
-        totalFarmlandHa={totalFarmlandHa}
-        totalFarmlandAcres={totalFarmlandAcres}
-        onOpenGEE={() => setIsGEEOpen(true)}
-      />
-
-      {/* Main Mode Views */}
-      {activeMode === 'case-study' ? (
-        /* Nov 2021 Flood Disaster Case Study View */
-        <div className="space-y-6">
-          <CaseStudySimulator />
-          
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <MapView 
-                dams={scannedDams}
-                selectedDam={selectedDam}
-                onSelectDam={setSelectedDam}
-                customDam={customDam}
-                onPlaceCustomDam={handlePlaceCustomDam}
-                layers={layers}
-                setLayers={setLayers}
-              />
-            </div>
-            <div>
-              <ElevationChart selectedDam={selectedDam} />
-            </div>
+    <div className="min-h-screen bg-[#e2e8f0] text-slate-800 p-0 flex flex-col justify-between">
+      {/* Unified Top Main Application Workspace (Flush to screen border) */}
+      <div className="w-full bg-white border-b border-slate-200 flex-grow shadow-sm">
+        <Header 
+          totalCapturedML={totalCapturedML}
+          totalTMC={totalTMC}
+          avgDeltaH={avgDeltaH}
+          totalFarmlandHa={totalFarmlandHa}
+          activeMode={activeMode}
+          setActiveMode={setActiveMode}
+          onOpenGEE={() => setIsGEEOpen(true)}
+        />
+        <div className="grid grid-cols-1 lg:grid-cols-5">
+          <div className="lg:col-span-4">
+            <MapView 
+              dams={scannedDams}
+              selectedDam={selectedDam}
+              onSelectDam={setSelectedDam}
+              customDam={customDam}
+              onPlaceCustomDam={handlePlaceCustomDam}
+              layers={layers}
+              setLayers={setLayers}
+              weights={weights}
+            />
+          </div>
+          <div className="lg:col-span-1">
+            <MCDAPanel 
+              dams={scannedDams}
+              weights={weights}
+              onWeightChange={handleWeightChange}
+              selectedDam={selectedDam}
+              onSelectDam={setSelectedDam}
+              activeModel={activeModel}
+              onSelectModel={setActiveModel}
+            />
           </div>
         </div>
-      ) : (
-        /* AI Network & Custom Rainfall Simulator View */
-        <div className="space-y-6">
-          {/* Upper Section: Map & MCDA Decision Sidebar */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
-              <MapView 
-                dams={scannedDams}
-                selectedDam={selectedDam}
-                onSelectDam={setSelectedDam}
-                customDam={customDam}
-                onPlaceCustomDam={handlePlaceCustomDam}
-                layers={layers}
-                setLayers={setLayers}
-              />
+      </div>
+
+      {/* Lower Section for toggleable Simulators (Separated into boxed cards with margins) */}
+      {(activeMode === 'case-study' || activeMode === 'custom-sim') && (
+        <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-200 space-y-6">
+          {activeMode === 'case-study' && (
+            <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm animate-in fade-in slide-in-from-top-3 duration-200">
+              <CaseStudySimulator />
             </div>
+          )}
 
-            <div>
-              <MCDAPanel 
-                dams={scannedDams}
-                weights={weights}
-                onWeightChange={handleWeightChange}
-                selectedDam={selectedDam}
-                onSelectDam={setSelectedDam}
-                activeModel={activeModel}
-                onSelectModel={setActiveModel}
-              />
-            </div>
-          </div>
-
-          {/* Comparative AI Models & Benchmarking Table */}
-          <MLBenchmarkPanel 
-            activeModel={activeModel}
-            onSelectModel={setActiveModel}
-          />
-
-          {/* Lower Section: Hydrological Calculator & Elevation Profile Chart */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="lg:col-span-2">
+          {activeMode === 'custom-sim' && (
+            <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm animate-in fade-in slide-in-from-top-3 duration-200">
               <HydroCalculator 
                 rainfallMM={rainfallMM}
                 onRainfallChange={setRainfallMM}
                 selectedDam={selectedDam}
               />
             </div>
-
-            <div>
-              <ElevationChart selectedDam={selectedDam} />
-            </div>
-          </div>
+          )}
         </div>
       )}
 
-      {/* Google Earth Engine Script Integration Modal */}
+      {/* Google Earth Engine Modal */}
       <GEEAnalyticsModal 
         isOpen={isGEEOpen}
         onClose={() => setIsGEEOpen(false)}
