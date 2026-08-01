@@ -2,6 +2,7 @@ import numpy as np
 import math
 from typing import Dict, Any, List
 from backend.dem_processor import dem_processor
+from backend.soil_processor import soil_processor
 from backend.hydrology_calculator import HA_TO_ACRES, hydrology_calc
 
 # Configurable MCDA Analytical Weight Profiles
@@ -91,7 +92,7 @@ class MCDAEngine:
         s_slope = max(0.0, 100.0 - (slope_deg * 25.0))
         s_elev = max(0.0, min(100.0, 100.0 - (elev_m * 1.1)))
         s_flow = 85.0
-        s_soil = 95.0 if hsg.startswith("B") else 75.0 if hsg.startswith("C") else 55.0
+        s_soil = 95.0 if hsg.startswith("A") or hsg.startswith("B") else 75.0 if hsg.startswith("C") else 55.0
         s_farm = min(100.0, (farmland_ha / 5000.0) * 100.0)
         s_width = min(100.0, max(20.0, (350.0 - width_m) / 2.0))
 
@@ -105,9 +106,9 @@ class MCDAEngine:
         meander_coords: List[List[float]] = None
     ) -> List[Dict[str, Any]]:
         """
-        PURE DEM PREDICTION ALGORITHM:
-        Scans river raster grid, evaluates slope & elevation topology, and predicts candidate locations dynamically.
-        Appends the nearest village name dynamically using spatial lookup.
+        PURE DEM & SOIL RASTER PREDICTION ALGORITHM:
+        Scans river raster grid, evaluates slope & elevation topology, queries real soil values from E:\soildata.tif, 
+        and predicts optimal candidate locations dynamically.
         """
         if profile_key not in MCDA_PROFILES:
             profile_key = 'mcda-standard'
@@ -119,7 +120,6 @@ class MCDAEngine:
         raw_candidates = dem_processor.extract_dynamic_candidate_sites(meander_coords, num_sites=5)
 
         districts = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
-        hsgs = ["B (Sandy Loam)", "B (Alluvial Loam)", "C (Clay Loam)", "C (Clayey Alluvium)", "D (Heavy Coastal Clay)"]
         widths = [240, 310, 190, 280, 350]
         costs = [18.5, 22.0, 14.8, 19.2, 16.0]
         storage_capacities_ml = [14.2, 18.5, 11.8, 12.4, 8.6]
@@ -129,7 +129,11 @@ class MCDAEngine:
             lat, lng = pt["lat"], pt["lng"]
             elev_m = pt["elev"]
             slope_deg = pt["slope"]
-            hsg = hsgs[i % len(hsgs)]
+            
+            # Query real soil classification from E:/soildata.tif raster!
+            soil_info = soil_processor.get_soil_at_point(lat, lng)
+            hsg = soil_info["hsg"]
+            
             width_m = widths[i % len(widths)]
             cost_lakhs = costs[i % len(costs)]
             district = districts[i % len(districts)]
@@ -137,10 +141,13 @@ class MCDAEngine:
             
             farmland_ha = max(1800, min(5200, int(3500 - (i * 300) + (elev_m * 12))))
             farmland_acres = int(round(farmland_ha * HA_TO_ACRES))
+            
+            # Recalculate score using real soil attributes
             score = self.calculate_mcda_score(elev_m, slope_deg, hsg, farmland_ha, width_m, weights)
             
-            # Compute real groundwater gain
-            aquifer_gain_m = round(max(1.5, 3.4 - (i * 0.45)), 2)
+            # Compute real groundwater table rise
+            rec_storage_ml = round(max(8.0, min(25.0, (width_m * 0.05) + (elev_m * 0.15))), 1)
+            gw_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
 
             # Look up nearest village name
             near_town = get_nearest_village(lat, lng)
@@ -163,11 +170,12 @@ class MCDAEngine:
                 "recHeight": f"{(4.2 - i * 0.3):.1f} m",
                 "recWidth": f"{width_m} m",
                 "hsg": hsg,
+                "soilInfiltration": f"{soil_info['ksat_mm_hr']} mm/hr",
                 "recStorageML": rec_storage_ml,
-                "rechargeRadiusKm": round(4.2 - i * 0.4, 1),
-                "aquiferRiseM": aquifer_gain_m,
+                "rechargeRadiusKm": gw_impact["recharge_radius_km"],
+                "aquiferRiseM": gw_impact["groundwater_gain_m"],
                 "costLakhs": cost_lakhs,
-                "annualIrrigationValueLakhs": gw_impact["annual_irrigation_value_lakhs"] if 'gw_impact' in locals() else int(round(cost_lakhs * 2.3)),
+                "annualIrrigationValueLakhs": gw_impact["annual_irrigation_value_lakhs"],
                 "farmlandHa": farmland_ha,
                 "farmlandAcres": farmland_acres,
                 "crossSection": [

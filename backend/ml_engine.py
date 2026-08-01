@@ -5,6 +5,7 @@ from sklearn.ensemble import RandomForestRegressor
 from typing import List, Dict, Any
 
 from backend.dem_processor import dem_processor
+from backend.soil_processor import soil_processor
 from backend.hydrology_calculator import HA_TO_ACRES, hydrology_calc
 
 class MLEngine:
@@ -27,14 +28,20 @@ class MLEngine:
             elev = dem_processor.get_elevation_at_point(lat, lng)
             slope, aspect = dem_processor.calculate_slope_and_aspect(lat, lng)
             
-            # Feature Vector: [Elevation, Slope, Aspect, Index]
-            features.append([elev, slope, aspect, float(idx)])
+            # Query soil data
+            soil_info = soil_processor.get_soil_at_point(lat, lng)
+            ksat = soil_info["ksat_mm_hr"]
+            
+            # Feature Vector: [Elevation, Slope, Aspect, Ksat, Index]
+            features.append([elev, slope, aspect, ksat, float(idx)])
             point_data.append({
                 "lat": lat,
                 "lng": lng,
                 "elev": elev,
                 "slope": slope,
                 "aspect": aspect,
+                "ksat": ksat,
+                "hsg": soil_info["hsg"],
                 "index": idx
             })
         return np.array(features), point_data
@@ -50,7 +57,7 @@ class MLEngine:
         centroids = self.kmeans.cluster_centers_
 
         # Dynamic target calculation for RandomForest scoring
-        y_targets = [90.0 - (f[1] * 12.0) - (f[0] * 0.1) for f in X]
+        y_targets = [90.0 - (f[1] * 12.0) - (f[0] * 0.1) + (f[3] * 0.5) for f in X]
         self.regressor.fit(X, y_targets)
         predicted_scores = self.regressor.predict(X)
 
@@ -70,6 +77,8 @@ class MLEngine:
                 "lng": pt["lng"],
                 "elev": pt["elev"],
                 "slope": pt["slope"],
+                "ksat": pt["ksat"],
+                "hsg": pt["hsg"],
                 "score": int(round(predicted_scores[best_idx])),
                 "index": pt["index"]
             })
@@ -83,13 +92,13 @@ class MLEngine:
         if len(X) == 0:
             return []
 
-        # Train regressor to favor low slope (ideal for check dams) and moderate elevation
+        # Train regressor to favor low slope and high soil infiltration capacity
         y_suitability = []
         for f in X:
             slope = f[1]
             elev = f[0]
-            # Higher score for flatter channel and stable bed elevation
-            score = 95.0 - (slope * 15.0) - (abs(elev - 35.0) * 0.3)
+            ksat = f[3]
+            score = 90.0 - (slope * 15.0) - (abs(elev - 35.0) * 0.3) + (ksat * 0.8)
             y_suitability.append(max(40.0, min(99.0, score)))
 
         self.regressor.fit(X, y_suitability)
@@ -103,6 +112,8 @@ class MLEngine:
                 "lng": pt["lng"],
                 "elev": pt["elev"],
                 "slope": pt["slope"],
+                "ksat": pt["ksat"],
+                "hsg": pt["hsg"],
                 "score": int(round(predicted_scores[i])),
                 "index": pt["index"]
             })
@@ -124,7 +135,6 @@ class MLEngine:
     def format_predictions(self, points: List[Dict[str, Any]], prefix: str) -> List[Dict[str, Any]]:
         from backend.mcda_engine import get_nearest_village
         districts = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
-        hsgs = ["B (Sandy Loam)", "B (Alluvial Loam)", "C (Clay Loam)", "C (Clayey Alluvium)", "D (Heavy Coastal Clay)"]
         widths = [240, 310, 190, 280, 350]
         costs = [18.5, 22.0, 14.8, 19.2, 16.0]
 
@@ -134,7 +144,7 @@ class MLEngine:
             elev_m = pt["elev"]
             slope_deg = pt["slope"]
             score = pt["score"]
-            hsg = hsgs[i % len(hsgs)]
+            hsg = pt["hsg"]
             width_m = widths[i % len(widths)]
             cost_lakhs = costs[i % len(costs)]
             district = districts[i % len(districts)]
@@ -166,6 +176,7 @@ class MLEngine:
                 "recHeight": f"{(4.2 - i * 0.3):.1f} m",
                 "recWidth": f"{width_m} m",
                 "hsg": hsg,
+                "soilInfiltration": f"{pt['ksat']} mm/hr",
                 "recStorageML": rec_storage_ml,
                 "rechargeRadiusKm": gw_impact["recharge_radius_km"],
                 "aquiferRiseM": aquifer_gain_m,

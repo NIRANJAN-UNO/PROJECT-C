@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 from backend.dem_processor import dem_processor
+from backend.soil_processor import soil_processor
 from backend.rainfall_processor import rainfall_processor
 from backend.hydrology_calculator import hydrology_calc
 from backend.mcda_engine import mcda_engine
@@ -12,8 +13,8 @@ from backend.ml_engine import ml_engine
 
 app = FastAPI(
     title="PROJECT C - Real-World Geospatial GIS, ML & Precipitation API",
-    description="Full-stack Python GIS Backend handling COP30 DEM, Real Rainfall Rasters, and K-Means & Random Forest AI Predictions",
-    version="7.0.0"
+    description="Full-stack Python GIS Backend handling COP30 DEM, Soil Rasters, Real Rainfall Rasters, and AI Predictions",
+    version="8.0.0"
 )
 
 app.add_middleware(
@@ -30,6 +31,7 @@ def get_root():
         "status": "online",
         "system": "PROJECT C Real-World GIS & AI Engine",
         "dem_info": dem_processor.get_info(),
+        "soil_info": soil_processor.get_info(),
         "rainfall_info": rainfall_processor.get_info()
     }
 
@@ -41,13 +43,16 @@ def get_dem_info():
 def get_point_elevation(lat: float = Query(...), lng: float = Query(...)):
     elev = dem_processor.get_elevation_at_point(lat, lng)
     slope, aspect = dem_processor.calculate_slope_and_aspect(lat, lng)
+    soil_info = soil_processor.get_soil_at_point(lat, lng)
     return {
         "lat": lat,
         "lng": lng,
         "cop30_elevation_m": elev,
         "slope_deg": slope,
         "aspect_deg": aspect,
-        "source": "Copernicus 30m DEM (output_hh.tif)"
+        "soil_hsg": soil_info["hsg"],
+        "soil_ksat_mm_hr": soil_info["ksat_mm_hr"],
+        "source": "Copernicus 30m DEM + Soil GeoTIFF"
     }
 
 @app.get("/api/rainfall/info")
@@ -102,7 +107,7 @@ def scan_hydrology(req: ScanRequest):
     return {
         "status": "success",
         "active_profile": req.profile_key,
-        "backend_engine": f"{engine_type} + Copernicus 30m DEM + Real Rainfall TIFs",
+        "backend_engine": f"{engine_type} + Copernicus 30m DEM + Soil Raster + Real Rainfall TIFs",
         "predictions": predictions
     }
 
