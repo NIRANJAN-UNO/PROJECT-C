@@ -18,6 +18,9 @@ export default function App() {
   const [customDam, setCustomDam] = useState(null);
   const [isGEEOpen, setIsGEEOpen] = useState(false);
 
+  // Dynamic candidate dams state (fetched from Python FastAPI backend)
+  const [apiDams, setApiDams] = useState(null);
+
   // MCDA Weight sliders state
   const [weights, setWeights] = useState({
     slope: 30,
@@ -27,19 +30,51 @@ export default function App() {
     width: 10
   });
 
-  // Dynamic 160 km River Channel Scanning Engine (Evaluates all 120+ coords live)
-  const scannedDams = useMemo(() => {
+  // Local fallback calculation engine
+  const localDams = useMemo(() => {
     return scanRiverChannelForDams(HIGH_RES_RIVER_MEANDER, activeModel, weights);
   }, [activeModel, weights]);
 
+  // Use API dams if available, else local fallback
+  const scannedDams = apiDams || localDams;
+
   const [selectedDam, setSelectedDam] = useState(scannedDams[0]);
 
-  // Keep selectedDam in sync when activeModel changes
+  // Fetch dynamic DEM candidate predictions from Python FastAPI backend
+  useEffect(() => {
+    async function fetchBackendPredictions() {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/hydrology/scan', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            profile_key: activeModel,
+            weights: weights,
+            meander_coords: HIGH_RES_RIVER_MEANDER
+          })
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          if (data.predictions && data.predictions.length > 0) {
+            setApiDams(data.predictions);
+            setSelectedDam(data.predictions[0]);
+          }
+        }
+      } catch (err) {
+        console.warn("FastAPI backend offline, using client-side COP30 profile:", err);
+      }
+    }
+
+    fetchBackendPredictions();
+  }, [activeModel, weights]);
+
+  // Keep selectedDam in sync when scannedDams change
   useEffect(() => {
     if (scannedDams && scannedDams.length > 0) {
       setSelectedDam(scannedDams[0]);
     }
-  }, [activeModel, scannedDams]);
+  }, [scannedDams]);
 
   // Layer toggles state
   const [layers, setLayers] = useState({

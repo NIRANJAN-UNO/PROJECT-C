@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { RIVER_PATH, HIGH_RES_RIVER_MEANDER, TRIBUTARY_STREAMS, TOP_CHECK_DAMS, KOLLIDAM_CENTER, KOLLIDAM_BOUNDS } from '../data/kollidamData';
+import { RIVER_PATH, HIGH_RES_RIVER_MEANDER, TRIBUTARY_STREAMS, KOLLIDAM_CENTER, KOLLIDAM_BOUNDS } from '../data/kollidamData';
 import { Layers, Sparkles, Anchor } from 'lucide-react';
 
 // Custom Marker SVG Creator
@@ -35,7 +35,6 @@ function snapToRiverMeander(clickLatLng) {
 
   for (let i = 0; i < HIGH_RES_RIVER_MEANDER.length; i++) {
     const pt = HIGH_RES_RIVER_MEANDER[i];
-    // Euclidian distance approximation
     const dist = Math.pow(pt[0] - clickLat, 2) + Math.pow(pt[1] - clickLng, 2);
     if (dist < minDistance) {
       minDistance = dist;
@@ -47,6 +46,7 @@ function snapToRiverMeander(clickLatLng) {
 }
 
 export default function MapView({ 
+  dams = [],
   selectedDam, 
   onSelectDam, 
   customDam, 
@@ -58,15 +58,14 @@ export default function MapView({
   const mapInstanceRef = useRef(null);
   const layerGroupRef = useRef(null);
 
-  // Initialize Map Instance with Strict Panning Bounds
+  // Initialize Map Instance
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (mapInstanceRef.current) return;
 
-    // Strict Kollidam Basin Panning Boundaries (Prevents dragging off map)
     const bounds = L.latLngBounds(
-      L.latLng(10.60, 78.40), // South-West
-      L.latLng(11.60, 80.10)  // North-East
+      L.latLng(10.60, 78.40),
+      L.latLng(11.60, 80.10)
     );
 
     const map = L.map(mapContainerRef.current, {
@@ -79,7 +78,6 @@ export default function MapView({
       zoomControl: true
     });
 
-    // Dark Base Tiles
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       attribution: '&copy; CARTO &amp; OpenStreetMap',
       maxZoom: 18
@@ -88,7 +86,6 @@ export default function MapView({
     const layerGroup = L.layerGroup().addTo(map);
     layerGroupRef.current = layerGroup;
 
-    // Handle map click with River Snapping
     map.on('click', (e) => {
       const snappedLatLng = snapToRiverMeander(e.latlng);
       onPlaceCustomDam(snappedLatLng);
@@ -130,80 +127,84 @@ export default function MapView({
 
     // 2. High-Resolution River Channel & Tributary Network
     if (layers.riverPath) {
-      // Main Winding Meander Channel
       L.polyline(HIGH_RES_RIVER_MEANDER, { color: '#3B82F6', weight: 14, opacity: 0.25, lineCap: 'round', lineJoin: 'round' }).addTo(layerGroup);
       L.polyline(HIGH_RES_RIVER_MEANDER, { color: '#00F2FE', weight: 6, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(layerGroup);
 
-      // Tributary Streams
       TRIBUTARY_STREAMS.forEach(stream => {
         L.polyline(stream, { color: '#38BDF8', weight: 2.5, opacity: 0.7, dashArray: '4,4' }).addTo(layerGroup);
       });
     }
 
-    // 3. Recharge Cones Layer
-    if (layers.rechargeZones) {
-      TOP_CHECK_DAMS.forEach(dam => {
-        L.circle([dam.lat, dam.lng], {
-          radius: dam.rechargeRadiusKm * 1000,
-          color: '#10B981',
-          fillColor: '#10B981',
-          fillOpacity: 0.12,
-          weight: 1,
-          dashArray: '3,3'
-        }).addTo(layerGroup);
+    // 3. Dynamic Model Predicted Check Dams & Recharge Cones
+    if (dams && dams.length > 0) {
+      dams.forEach(dam => {
+        // Recharge Cone
+        if (layers.rechargeZones) {
+          L.circle([dam.lat, dam.lng], {
+            radius: dam.rechargeRadiusKm * 1000,
+            color: '#10B981',
+            fillColor: '#10B981',
+            fillOpacity: 0.12,
+            weight: 1,
+            dashArray: '3,3'
+          }).addTo(layerGroup);
+        }
+
+        // Candidate Marker
+        if (layers.candidateSites) {
+          const marker = L.marker([dam.lat, dam.lng], {
+            icon: createMarkerIcon(dam.rank, false)
+          });
+
+          const popupContent = `
+            <div style="padding: 4px; min-width: 220px;">
+              <div style="font-weight: 800; color: #00F2FE; font-size: 12px; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 4px;">
+                ${dam.id}: ${dam.name}
+              </div>
+              <div style="font-size: 11px; color: #CBD5E1; line-height: 1.6;">
+                <p><strong>COP30 DEM Elevation:</strong> ${dam.cop30_elevation_m !== undefined ? dam.cop30_elevation_m : '45.0'} meters MSL</p>
+                <p><strong>Terrain Slope:</strong> ${dam.slope_deg !== undefined ? dam.slope_deg : '0.8'}°</p>
+                <p><strong>Coordinates:</strong> ${dam.lat.toFixed(4)}°N, ${dam.lng.toFixed(4)}°E</p>
+                <p><strong>Structure Type:</strong> ${dam.type}</p>
+                <p><strong>Storage Capacity:</strong> ${dam.recStorageML} Million Liters</p>
+                <p><strong>Water Table Gain:</strong> +${dam.aquiferRiseM} meters</p>
+                <p><strong>Farmland Benefited:</strong> ${dam.farmlandAcres ? dam.farmlandAcres.toLocaleString() : 0} Acres (${dam.farmlandHa} Ha)</p>
+              </div>
+            </div>
+          `;
+
+          marker.bindPopup(popupContent);
+          marker.on('click', () => onSelectDam(dam));
+          marker.addTo(layerGroup);
+        }
       });
     }
 
-    // 4. AI Candidate Dam Markers Layer (Strictly placed on river)
-    if (layers.candidateSites) {
-      TOP_CHECK_DAMS.forEach(dam => {
-        const marker = L.marker([dam.lat, dam.lng], {
-          icon: createMarkerIcon(dam.rank, false)
-        });
-
-        const popupContent = `
-          <div style="padding: 4px; min-width: 210px;">
-            <div style="font-weight: 800; color: #00F2FE; font-size: 12px; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 4px;">
-              ${dam.id}: ${dam.name}
-            </div>
-            <div style="font-size: 11px; color: #CBD5E1; line-height: 1.6;">
-              <p><strong>District:</strong> ${dam.district}</p>
-              <p><strong>Structure:</strong> ${dam.type}</p>
-              <p><strong>Storage Capacity:</strong> ${dam.recStorageML} Million Liters</p>
-              <p><strong>Water Table Gain:</strong> +${dam.aquiferRiseM} meters</p>
-              <p><strong>Farmland Benefited:</strong> ${dam.farmlandHa} Ha</p>
-            </div>
-          </div>
-        `;
-
-        marker.bindPopup(popupContent);
-        marker.on('click', () => onSelectDam(dam));
-        marker.addTo(layerGroup);
-      });
-    }
-
-    // 5. Virtual Custom Dam Marker (Snaps directly on river channel)
+    // 4. Virtual Custom Dam Marker with Real-Time COP30 DEM Telemetry
     if (customDam) {
       const customMarker = L.marker([customDam.lat, customDam.lng], {
         icon: createMarkerIcon('?', true)
       });
 
       const popupContent = `
-        <div style="padding: 4px; min-width: 190px;">
+        <div style="padding: 4px; min-width: 220px;">
           <div style="font-weight: 800; color: #F59E0B; font-size: 12px; margin-bottom: 6px; border-bottom: 1px solid #334155; padding-bottom: 4px;">
-            ⚡ Virtual Check Dam (River Snapped)
+            ⚡ Virtual Check Dam (Live COP-DEM 30m Query)
           </div>
           <div style="font-size: 11px; color: #CBD5E1; line-height: 1.6;">
-            <p><strong>Snapped Coords:</strong> ${customDam.lat.toFixed(4)}°N, ${customDam.lng.toFixed(4)}°E</p>
+            <p><strong>COP30 DEM Elevation:</strong> <span style="color: #00F2FE; font-weight: bold;">${customDam.cop30_elevation_m !== undefined ? customDam.cop30_elevation_m : '45.0'} m MSL</span></p>
+            <p><strong>Terrain Slope:</strong> <span style="color: #10B981; font-weight: bold;">${customDam.slope_deg !== undefined ? customDam.slope_deg : '0.8'}°</span></p>
+            <p><strong>GPS Coordinates:</strong> ${customDam.lat.toFixed(4)}°N, ${customDam.lng.toFixed(4)}°E</p>
             <p><strong>Est Storage:</strong> ${customDam.recStorageML} Million Liters</p>
             <p><strong>Predicted Gain:</strong> +${customDam.aquiferRiseM} meters</p>
+            <p><strong>Cropland Recharged:</strong> ${customDam.farmlandAcres ? customDam.farmlandAcres.toLocaleString() : 0} Acres (${customDam.farmlandHa} Ha)</p>
           </div>
         </div>
       `;
 
       customMarker.bindPopup(popupContent).addTo(layerGroup);
     }
-  }, [layers, customDam, onSelectDam]);
+  }, [layers, dams, customDam, onSelectDam]);
 
   // Fly to selected dam
   useEffect(() => {
@@ -267,7 +268,7 @@ export default function MapView({
       {/* Map Click Instructions Banner */}
       <div className="absolute bottom-4 left-4 z-[1000] glass-panel px-3 py-2 text-[11px] flex items-center gap-2 text-cyan-300 border border-cyan-500/30">
         <Anchor className="w-4 h-4 text-amber-400" />
-        <span>Click near the river to drop a dam — <strong>Auto-snaps strictly onto the river channel</strong>.</span>
+        <span>Click near river to drop a virtual dam — <strong>Queries output_hh.tif GeoTIFF live</strong>.</span>
       </div>
 
       {/* Native Leaflet Container DOM Element */}

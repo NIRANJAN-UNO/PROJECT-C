@@ -110,17 +110,15 @@ class DEMProcessor:
         num_sites: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        Scans river meander coordinates against COP30 DEM, detects low-slope depression reaches,
+        Scans all river meander coordinates against COP30 DEM, detects low-slope depression reaches,
         and dynamically extracts candidate check-dam locations based on real terrain topology.
         """
         if not meander_coords:
             return []
 
         sampled_points = []
-        step = max(1, len(meander_coords) // 20)
-        
-        for idx in range(0, len(meander_coords), step):
-            lat, lng = meander_coords[idx]
+        for idx, pt in enumerate(meander_coords):
+            lat, lng = pt[0], pt[1]
             elev = self.get_elevation_at_point(lat, lng)
             slope, aspect = self.calculate_slope_and_aspect(lat, lng)
             
