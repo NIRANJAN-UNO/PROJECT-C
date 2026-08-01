@@ -71,55 +71,51 @@ class MCDAEngine:
         user_weights: Dict[str, float] = None,
         meander_coords: List[List[float]] = None
     ) -> List[Dict[str, Any]]:
+        """
+        PURE DEM PREDICTION ALGORITHM:
+        Scans river raster grid, evaluates slope & elevation topology, and predicts candidate locations dynamically.
+        Zero hardcoded place names.
+        """
         if profile_key not in MCDA_PROFILES:
             profile_key = 'mcda-standard'
         
         profile_info = MCDA_PROFILES[profile_key]
         weights = user_weights or profile_info["default_weights"]
 
-        # Extract dynamic candidates from DEM
+        # Dynamically extract candidate points purely from DEM raster topology
         raw_candidates = dem_processor.extract_dynamic_candidate_sites(meander_coords, num_sites=5)
-        
-        # Distinct regional landmark names along the 160 km Kollidam reach
-        regional_names = [
-            "Upper Mukkombu Catchment",
-            "Kallanai Anicut East Sector",
-            "Thirumanur Confluence Zone",
-            "Lower Anaicut Delta Reach",
-            "Sirkazhi Coastal Buffer"
-        ]
-
-        districts = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
-        hsgs = ["B (Sandy Loam)", "B (Alluvial Loam)", "C (Clay Loam)", "C (Clayey Alluvium)", "D (Heavy Coastal Clay)"]
-        widths = [240, 310, 190, 280, 350]
-        costs = [18.5, 22.0, 14.8, 19.2, 16.0]
-        storage_capacities_ml = [14.2, 18.5, 11.8, 12.4, 8.6]
 
         results = []
         for i, pt in enumerate(raw_candidates):
             lat, lng = pt["lat"], pt["lng"]
             elev_m = pt["elev"]
             slope_deg = pt["slope"]
-            hsg = hsgs[i % len(hsgs)]
-            width_m = widths[i % len(widths)]
-            cost_lakhs = costs[i % len(costs)]
-            district = districts[i % len(districts)]
-            region_name = regional_names[i % len(regional_names)]
-            rec_storage_ml = storage_capacities_ml[i % len(storage_capacities_ml)]
             
-            farmland_ha = max(1800, min(5200, int(3500 - (i * 300) + (elev_m * 12))))
+            # Dynamic attributes calculated directly from DEM topology & location
+            hsg = "B (Sandy Loam)" if elev_m > 50 else "B (Alluvial Loam)" if elev_m > 30 else "C (Clay Loam)" if elev_m > 15 else "D (Heavy Coastal Clay)"
+            width_m = round(200.0 + (slope_deg * 40.0) + ((100.0 - elev_m) * 1.5))
+            cost_lakhs = round(15.0 + (width_m / 25.0), 1)
+            
+            # Compute farmland area dynamically from elevation depression basin
+            farmland_ha = int(round(max(1500.0, min(5000.0, 4200.0 - (elev_m * 25.0) + (slope_deg * 300.0)))))
             farmland_acres = int(round(farmland_ha * HA_TO_ACRES))
+            
+            # Compute MCDA prediction score
             score = self.calculate_mcda_score(elev_m, slope_deg, hsg, farmland_ha, width_m, weights)
             
-            # Compute real groundwater gain (e.g. +3.2m, +2.9m, +2.4m, +2.1m, +1.6m)
-            aquifer_gain_m = round(max(1.5, 3.4 - (i * 0.45)), 2)
+            # Calculate dynamic storage volume based on DEM elevation & channel width
+            rec_storage_ml = round(max(8.0, min(25.0, (width_m * 0.05) + (elev_m * 0.15))), 1)
+            gw_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
+
+            # Pure DEM Predicted Location Title
+            predicted_title = f"Predicted Site #{i+1} ({lat:.3f}°N, {lng:.3f}°E)"
 
             results.append({
                 "id": f"CD-0{i+1}",
                 "rank": i + 1,
-                "name": f"{region_name} ({lat:.3f}°N, {lng:.3f}°E)",
-                "regionName": region_name,
-                "district": district,
+                "name": predicted_title,
+                "regionName": predicted_title,
+                "district": f"Sector ({lat:.2f}°N, {lng:.2f}°E)",
                 "lat": lat,
                 "lng": lng,
                 "cop30_elevation_m": elev_m,
@@ -131,10 +127,10 @@ class MCDAEngine:
                 "recWidth": f"{width_m} m",
                 "hsg": hsg,
                 "recStorageML": rec_storage_ml,
-                "rechargeRadiusKm": round(4.2 - i * 0.4, 1),
-                "aquiferRiseM": aquifer_gain_m,
+                "rechargeRadiusKm": gw_impact["recharge_radius_km"],
+                "aquiferRiseM": gw_impact["groundwater_gain_m"],
                 "costLakhs": cost_lakhs,
-                "annualIrrigationValueLakhs": int(round(cost_lakhs * 2.3)),
+                "annualIrrigationValueLakhs": gw_impact["annual_irrigation_value_lakhs"],
                 "farmlandHa": farmland_ha,
                 "farmlandAcres": farmland_acres,
                 "crossSection": [
