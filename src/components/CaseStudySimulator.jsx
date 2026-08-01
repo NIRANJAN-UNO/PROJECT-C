@@ -3,9 +3,22 @@ import { ShieldAlert, Play, Pause, RotateCcw, Droplets, ArrowRight, CheckCircle2
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 import { NOV_2021_CASE_STUDY } from '../data/kollidamData';
 
-export default function CaseStudySimulator() {
+export default function CaseStudySimulator({ scannedDams = [] }) {
   const [currentHourIndex, setCurrentHourIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  // Dynamic capacity calculations based on active check dams
+  const activeCapacity = scannedDams.reduce((acc, dam) => acc + (dam.recStorageML || 0), 0);
+  const baselineCapacity = 65.5; // Baseline Standard MCDA: 14.2+18.5+11.8+12.4+8.6 = 65.5 ML
+  const capacityScalar = activeCapacity > 0 ? activeCapacity / baselineCapacity : 1.0;
+
+  const dynamicCapturedVolumeML = Math.round(NOV_2021_CASE_STUDY.aiCapturedVolumeML * capacityScalar);
+  const totalWaterVolumeML = NOV_2021_CASE_STUDY.statusQuoSeaLossML + NOV_2021_CASE_STUDY.aiCapturedVolumeML;
+  const dynamicSeaLossML = Math.max(0, totalWaterVolumeML - dynamicCapturedVolumeML);
+  
+  const dynamicWaterTableGainM = (2.85 * capacityScalar).toFixed(2);
+  const dynamicFarmlandRechargedHa = Math.round(16300 * capacityScalar);
+  const dynamicRetentionPercent = ((dynamicCapturedVolumeML / totalWaterVolumeML) * 100).toFixed(1);
 
   useEffect(() => {
     let interval = null;
@@ -23,8 +36,20 @@ export default function CaseStudySimulator() {
     return () => clearInterval(interval);
   }, [isPlaying]);
 
-  const currentStep = NOV_2021_CASE_STUDY.timeline[currentHourIndex];
-  const chartData = NOV_2021_CASE_STUDY.timeline.slice(0, currentHourIndex + 1);
+  // Scale timeline calculations for hydrograph chart and display
+  const scaledTimeline = NOV_2021_CASE_STUDY.timeline.map(step => {
+    const aiCaptured = Math.round(step.aiCapturedML * capacityScalar);
+    const totalStepML = step.seaLossML + step.aiCapturedML;
+    const seaLoss = Math.max(0, totalStepML - aiCaptured);
+    return {
+      ...step,
+      aiCapturedML: aiCaptured,
+      seaLossML: seaLoss
+    };
+  });
+
+  const currentStep = scaledTimeline[currentHourIndex];
+  const chartData = scaledTimeline.slice(0, currentHourIndex + 1);
 
   return (
     <div className="w-full glass-panel p-5 space-y-5 border-rose-500/30">
@@ -78,7 +103,7 @@ export default function CaseStudySimulator() {
             <span className="px-2 py-0.5 bg-rose-500/20 text-rose-300 rounded text-[10px]">100% Unutilized Loss</span>
           </div>
           <div className="text-2xl font-extrabold text-white font-mono">
-            {NOV_2021_CASE_STUDY.statusQuoSeaLossML.toLocaleString()} <span className="text-xs text-rose-300">ML Discharged to Sea</span>
+            {dynamicSeaLossML.toLocaleString()} <span className="text-xs text-rose-300">ML Discharged to Sea</span>
           </div>
           <p className="text-xs text-slate-400">
             Millions of liters of fresh water drained rapid (~160 km channel) straight into the Bay of Bengal within 72 hrs.
@@ -89,14 +114,14 @@ export default function CaseStudySimulator() {
         <div className="p-4 bg-emerald-950/20 border border-emerald-900/40 rounded-xl space-y-2">
           <div className="flex items-center justify-between text-emerald-400 text-xs font-bold">
             <span>🟢 AI Proposed Network Solution</span>
-            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px]">35.5% Retained</span>
+            <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded text-[10px]">{dynamicRetentionPercent}% Retained</span>
           </div>
           <div className="text-2xl font-extrabold text-emerald-400 font-mono">
-            {NOV_2021_CASE_STUDY.aiCapturedVolumeML.toLocaleString()} <span className="text-xs text-slate-400">ML Captured</span>
+            {dynamicCapturedVolumeML.toLocaleString()} <span className="text-xs text-slate-400">ML Captured</span>
           </div>
           <div className="flex items-center gap-4 text-xs font-semibold text-slate-300 pt-1">
-            <span>Water Table Gain: <strong className="text-emerald-400">+{NOV_2021_CASE_STUDY.waterTableGainM} m</strong></span>
-            <span>Recharged Farmland: <strong className="text-amber-400">{NOV_2021_CASE_STUDY.farmlandRechargedHa.toLocaleString()} Ha</strong></span>
+            <span>Water Table Gain: <strong className="text-emerald-400">+{dynamicWaterTableGainM} m</strong></span>
+            <span>Recharged Farmland: <strong className="text-amber-400">{dynamicFarmlandRechargedHa.toLocaleString()} Ha</strong></span>
           </div>
         </div>
       </div>

@@ -7,6 +7,7 @@ from typing import List, Dict, Any, Optional
 from backend.dem_processor import dem_processor
 from backend.soil_processor import soil_processor
 from backend.rainfall_processor import rainfall_processor
+from backend.lclu_processor import lclu_processor
 from backend.hydrology_calculator import hydrology_calc
 from backend.mcda_engine import mcda_engine
 from backend.ml_engine import ml_engine
@@ -37,8 +38,10 @@ def get_root():
         "dem_info": dem_processor.get_info(),
         "soil_info": soil_processor.get_info(),
         "rainfall_info": rainfall_processor.get_info(),
-        "river_network_info": river_processor.get_info()
+        "river_network_info": river_processor.get_info(),
+        "lclu_info": lclu_processor.get_info()
     }
+
 
 @app.get("/api/dem/info")
 def get_dem_info():
@@ -61,6 +64,7 @@ def get_point_elevation(lat: float = Query(...), lng: float = Query(...)):
         "soil_ksat_mm_hr": soil_details["ksat_mm_hr"],
         "source": "Copernicus 30m DEM + Soil GeoTIFF"
     }
+
 
 @app.get("/api/rainfall/info")
 def get_rainfall_info():
@@ -110,10 +114,10 @@ def scan_hydrology(scan_params: ScanRequest):
     coords_to_use = real_river_coords if len(real_river_coords) > 10 else scan_params.meander_coords
 
     if scan_params.profile_key == 'ml-kmeans':
-        predicted_sites = ml_engine.predict_kmeans(coords_to_use)
+        predicted_sites = ml_engine.predict_kmeans(coords_to_use, scan_params.weights)
         engine_label = "Python scikit-learn (K-Means Clustering) on OSM River Network"
     elif scan_params.profile_key == 'ml-randomforest':
-        predicted_sites = ml_engine.predict_randomforest(coords_to_use)
+        predicted_sites = ml_engine.predict_randomforest(coords_to_use, scan_params.weights)
         engine_label = "Python scikit-learn (RandomForestRegressor) on OSM River Network"
     else:
         predicted_sites = mcda_engine.generate_candidate_predictions(
@@ -232,3 +236,24 @@ def scan_from_intersections():
         "kmeans_predictions": kmeans_sites,
         "randomforest_predictions": rf_sites
     }
+
+
+# ─── LCLU (Land Use / Land Cover) Endpoints ───────────────────────────────
+
+@app.get("/api/lclu/info")
+def get_lclu_info():
+    """Returns summary metadata for the 10m satellite LCLU raster."""
+    return lclu_processor.get_info()
+
+@app.get("/api/lclu/point")
+def get_lclu_at_point(lat: float = Query(...), lng: float = Query(...)):
+    """Returns 10m land cover class (cropland, forest, built-up, water, etc.) at a GPS location."""
+    class_info = lclu_processor.get_lclu_at_point(lat, lng)
+    cropland_stats = lclu_processor.get_cropland_area_in_radius(lat, lng, radius_km=1.5)
+    return {
+        "lat": lat,
+        "lng": lng,
+        "land_cover": class_info,
+        "cropland_recharge_area": cropland_stats
+    }
+

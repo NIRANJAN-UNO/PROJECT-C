@@ -10,7 +10,7 @@ export const MCDA_PROFILES = {
     type: "Multi-Criteria Decision Analysis",
     score: "DEM-Weighted",
     badge: "Balanced MCDA",
-    color: "cyan",
+    color: "teal",
     details: "Multi-criteria spatial scoring balancing slope, elevation, soil permeability, and farmland proximity."
   },
   'mcda-slope': {
@@ -21,21 +21,29 @@ export const MCDA_PROFILES = {
     color: "emerald",
     details: "Prioritizes flat terrain channels (slope < 2.0°) to maximize storage pool backwater area."
   },
+  'mcda-soil': {
+    name: "Deep Alluvial Recharge Focus",
+    type: "Infiltration Capacity Focus",
+    score: "Soil Permeability Focus",
+    badge: "High Infiltration (Ksat)",
+    color: "amber",
+    details: "Prioritizes high-permeability sandy alluvial channels (HSG B) for rapid deep aquifer recharge."
+  },
   'ml-kmeans': {
     name: "K-Means Clustering AI",
     type: "Machine Learning (Unsupervised Clustering)",
-    score: "K-Means Predicted",
-    badge: "Spatial Cluster Zoning",
+    score: "K-Means Cluster",
+    badge: "Unsupervised ML Cluster",
     color: "blue",
-    details: "Groups 115 river reaches into 5 geomorphic clusters based on spatial-elevation features."
+    details: "Groups river coordinates into 5 geomorphic spatial clusters based on terrain feature matrices."
   },
   'ml-randomforest': {
     name: "Random Forest Regressor AI",
     type: "Machine Learning (Decision Tree Regressor)",
     score: "RF Regressor",
-    badge: "Tree Suitability Scoring",
+    badge: "Supervised Decision Trees",
     color: "purple",
-    details: "Trains 50 decision trees to predict non-linear suitability scores based on DEM topography."
+    details: "Trains 50 decision trees to predict non-linear terrain suitability scores based on COP30 DEM."
   }
 };
 

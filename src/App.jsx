@@ -138,6 +138,7 @@ export default function App() {
       annualIrrigationValueLakhs: Math.round((recStorageML * 2.8) / 10),
       farmlandHa: gw.rechargeAreaHa,
       farmlandAcres: gw.rechargeAreaAcres,
+
       crossSection: [
         { dist: 0, elev: roundVal(sampledElev + 8) },
         { dist: 40, elev: roundVal(sampledElev + 4) },
@@ -220,7 +221,7 @@ export default function App() {
         <div className="p-4 md:p-6 bg-slate-50 border-t border-slate-200 space-y-6">
           {activeMode === 'case-study' && (
             <div className="bg-white border border-slate-200 rounded-lg p-5 shadow-sm animate-in fade-in slide-in-from-top-3 duration-200">
-              <CaseStudySimulator />
+              <CaseStudySimulator scannedDams={scannedDams} />
             </div>
           )}
 

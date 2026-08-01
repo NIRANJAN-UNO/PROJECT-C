@@ -6,7 +6,9 @@ from typing import List, Dict, Any
 
 from backend.dem_processor import dem_processor, WATER_BODY_EXCLUSION_ZONES
 from backend.soil_processor import soil_processor
+from backend.lclu_processor import lclu_processor
 from backend.hydrology_calculator import HA_TO_ACRES, hydrology_calc
+
 
 class MLEngine:
     """
@@ -54,7 +56,7 @@ class MLEngine:
             print(f"[MLEngine] Skipped {skipped} points inside water body exclusion zones")
         return np.array(feature_matrix), point_details_list
 
-    def predict_kmeans(self, meander_coords: List[List[float]]) -> List[Dict[str, Any]]:
+    def predict_kmeans(self, meander_coords: List[List[float]], weights: Dict[str, float] = None) -> List[Dict[str, Any]]:
         """Groups river coordinates into 5 geographic clusters using K-Means and picks the center of each group."""
         X_features, point_details_list = self.extract_features(meander_coords)
         if len(X_features) == 0:
@@ -92,9 +94,9 @@ class MLEngine:
             })
 
         chosen_candidate_points.sort(key=lambda item: item["index"])
-        return self.format_predictions(chosen_candidate_points, "K-Means Cluster")
+        return self.format_predictions(chosen_candidate_points, "K-Means Cluster", weights)
 
-    def predict_randomforest(self, meander_coords: List[List[float]]) -> List[Dict[str, Any]]:
+    def predict_randomforest(self, meander_coords: List[List[float]], weights: Dict[str, float] = None) -> List[Dict[str, Any]]:
         """Trains a Random Forest decision tree model to score and select the top 5 river locations."""
         X_features, point_details_list = self.extract_features(meander_coords)
         if len(X_features) == 0:
@@ -138,11 +140,12 @@ class MLEngine:
                 selected_points.append(candidate)
 
         selected_points.sort(key=lambda item: item["index"])
-        return self.format_predictions(selected_points, "RF Regressor")
+        return self.format_predictions(selected_points, "RF Regressor", weights)
 
-    def format_predictions(self, points: List[Dict[str, Any]], label_prefix: str) -> List[Dict[str, Any]]:
+    def format_predictions(self, points: List[Dict[str, Any]], label_prefix: str, weights: Dict[str, float] = None) -> List[Dict[str, Any]]:
         """Formats the output dictionary for each predicted site."""
-        from backend.mcda_engine import get_nearest_village
+        from backend.mcda_engine import get_nearest_village, mcda_engine
+        active_weights = weights or {"slope": 30, "flow": 25, "soil": 20, "farmland": 15, "width": 10}
         districts_list = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
         width_values = [240, 310, 190, 280, 350]
         cost_values = [18.5, 22.0, 14.8, 19.2, 16.0]
@@ -158,9 +161,13 @@ class MLEngine:
             cost_lakhs = cost_values[index_i % len(cost_values)]
             district_name = districts_list[index_i % len(districts_list)]
             
-            farmland_ha = int(round(max(1500.0, min(5000.0, 4200.0 - (elev_m * 25.0) + (slope_deg * 300.0)))))
-            farmland_acres = int(round(farmland_ha * HA_TO_ACRES))
+            # Query 10m Satellite LCLU Raster for exact Cropland Hectares & Land Cover Class
+            lclu_class_info = lclu_processor.get_lclu_at_point(lat, lng)
+            cropland_stats = lclu_processor.get_cropland_area_in_radius(lat, lng, radius_km=1.5)
+            farmland_ha = cropland_stats["cropland_ha"]
+            farmland_acres = cropland_stats["cropland_acres"]
             rec_storage_ml = round(max(8.0, min(25.0, (width_m * 0.05) + (elev_m * 0.15))), 1)
+
             
             water_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
             aquifer_gain_m = water_impact["groundwater_gain_m"]
@@ -181,7 +188,9 @@ class MLEngine:
                 "slope_deg": slope_deg,
                 "score": score_val,
                 "calculatedScore": score_val,
+                "attributions": mcda_engine.calculate_xai_attributions(elev_m, slope_deg, hsg_group, farmland_ha, width_m, active_weights),
                 "type": "Sub-surface Dyke + Spillway" if index_i == 1 else "Inflatable Rubber Weir" if index_i == 3 else "Salt Barrage Check Dam" if index_i == 4 else "Concrete Overflow Check Dam",
+
                 "recHeight": f"{(4.2 - index_i * 0.3):.1f} m",
                 "recWidth": f"{width_m} m",
                 "hsg": hsg_group,

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Mountain, Droplets, Grid, Sprout, Waves, ChevronDown, ChevronUp, Sliders, Trophy, Cpu } from 'lucide-react';
+import { BarChart, Bar, Cell, XAxis, YAxis, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip } from 'recharts';
 import { calculateMCDAScore, MCDA_PROFILES } from '../utils/hydrology';
 
 export default function MCDAPanel({ 
@@ -14,8 +15,36 @@ export default function MCDAPanel({
   const [openSections, setOpenSections] = useState({
     criteria: true,
     sites: true,
-    info: false
+    info: false,
+    xai: true
   });
+
+  const getAttributions = (dam) => {
+    if (dam.attributions) return dam.attributions;
+    // Local fallback calculation for custom placed dams or offline mode
+    const totalWeight = Object.values(weights).reduce((a, b) => a + b, 0) || 100;
+    const wSlope = (weights.slope || 0) / totalWeight;
+    const wFlow = (weights.flow || 0) / totalWeight;
+    const wSoil = (weights.soil || 0) / totalWeight;
+    const wFarmland = (weights.farmland || 0) / totalWeight;
+    const wWidth = (weights.width || 0) / totalWeight;
+
+    const sSlope = Math.max(0, 100 - ((dam.slopeDeg || dam.slope_deg || 0.8) * 25));
+    const sFlow = 85.0;
+    const sSoil = dam.hsg.startsWith("A") || dam.hsg.startsWith("B") ? 95.0 : dam.hsg.startsWith("C") ? 75.0 : 55.0;
+    const sFarm = Math.min(100, ((dam.farmlandHa || 200) / 300) * 100);
+    const sWidth = Math.min(100, Math.max(20, (350 - parseFloat(dam.recWidth || 260)) / 2));
+
+    return {
+      "Terrain Slope": Math.round(wSlope * (sSlope - 77.5) * 10) / 10,
+      "Flow Accumulation": Math.round(wFlow * (sFlow - 85.0) * 10) / 10,
+      "Soil Infiltration": Math.round(wSoil * (sSoil - 75.0) * 10) / 10,
+      "Farmland Proximity": Math.round(wFarmland * (sFarm - 25.0) * 10) / 10,
+      "Stream Width/Stability": Math.round(wWidth * (sWidth - 45.0) * 10) / 10
+    };
+
+
+  };
 
   const toggleSection = (sectionKey) => {
     setOpenSections(prev => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
@@ -29,7 +58,7 @@ export default function MCDAPanel({
     { key: 'width', label: 'Stream stability', icon: Waves, hint: 'More stable is better' }
   ];
 
-  const selectableProfiles = Object.entries(MCDA_PROFILES).filter(([key]) => !key.startsWith('ml-'));
+  const selectableProfiles = Object.entries(MCDA_PROFILES);
 
   const activeProfileData = MCDA_PROFILES[activeModel] || MCDA_PROFILES['mcda-standard'];
 
@@ -45,7 +74,7 @@ export default function MCDAPanel({
         >
           <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
             <Sliders className="w-4 h-4 text-[#0f766e]" />
-            <span>Decision Criteria Weights</span>
+            <span>Decision Criteria & Models</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] font-semibold text-slate-400">Total 100%</span>
@@ -56,27 +85,39 @@ export default function MCDAPanel({
         {/* Accordion Body */}
         {openSections.criteria && (
           <div className="p-4 space-y-4">
-            {/* Presets Toggle */}
+            {/* Model Selector Dropdown & Badges */}
             {activeModel && onSelectModel && (
-              <div className="space-y-1.5">
-                <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Evaluation Profile</div>
-                <div className="grid grid-cols-2 gap-1.5 bg-slate-100/80 p-1 rounded-lg border border-slate-200/60">
-                  {selectableProfiles.map(([key, profile]) => {
-                    const isSelected = activeModel === key;
-                    return (
-                      <button
-                        key={key}
-                        onClick={() => onSelectModel(key)}
-                        className={`py-1.5 px-2.5 rounded text-center text-xs font-bold transition ${
-                          isSelected 
-                            ? 'bg-[#0f766e] text-white shadow-sm' 
-                            : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
-                        }`}
-                      >
-                        {key === 'mcda-standard' ? 'Balanced MCDA' : 'Slope-Optimized'}
-                      </button>
-                    );
-                  })}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Hydrological Model Engine</span>
+                  <span className="text-[9.5px] font-bold text-[#0f766e] bg-[#f0fdf4] px-2 py-0.5 rounded border border-[#dcfce7]">
+                    {selectableProfiles.length} Models Available
+                  </span>
+                </div>
+                
+                {/* Select Dropdown */}
+                <select
+                  value={activeModel}
+                  onChange={(e) => onSelectModel(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold rounded-lg p-2.5 outline-none focus:border-[#0f766e] focus:ring-1 focus:ring-[#0f766e]"
+                >
+                  <optgroup label="Multi-Criteria Decision Analysis (MCDA)">
+                    <option value="mcda-standard">⚖️ Standard Hydro-MCDA (Balanced)</option>
+                    <option value="mcda-slope">📐 Slope-Optimized Selection (&lt;2°)</option>
+                    <option value="mcda-soil">💧 Deep Alluvial Soil Recharge (Ksat)</option>
+                  </optgroup>
+                  <optgroup label="Machine Learning & AI Models">
+                    <option value="ml-kmeans">🤖 K-Means Spatial Clustering AI</option>
+                    <option value="ml-randomforest">🌲 Random Forest Regressor AI</option>
+                  </optgroup>
+                </select>
+
+                {/* Active Model Description Pill */}
+                <div className="p-2.5 bg-slate-50 rounded-lg border border-slate-150 text-[11px] leading-relaxed text-slate-600">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5 mb-0.5">
+                    <span>{activeProfileData.name}</span>
+                  </div>
+                  <div className="text-[10.5px] text-slate-500">{activeProfileData.details}</div>
                 </div>
               </div>
             )}
@@ -179,6 +220,7 @@ export default function MCDAPanel({
                     <div className="text-[9.5px] text-slate-500 leading-tight font-medium hidden xs:block">
                       <div>Storage: <span className="font-bold text-slate-800">{dam.recStorageML} ML</span></div>
                       <div>GW Rise: <span className="font-bold text-[#0f766e]">+{dam.aquiferRiseM} m</span></div>
+                      <div>Cropland: <span className="font-bold text-amber-600">{dam.farmlandAcres ? dam.farmlandAcres.toLocaleString() : 0} Ac</span></div>
                     </div>
                     <div className="flex flex-col items-center justify-center bg-slate-50 border border-slate-200 px-2 py-1 rounded-md min-w-[38px]">
                       <span className="text-[8px] font-bold text-slate-400 uppercase leading-none">Score</span>
@@ -194,29 +236,77 @@ export default function MCDAPanel({
         )}
       </div>
 
-      {/* SECTION 3: Model Engine Summary */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
-        <button 
-          onClick={() => toggleSection('info')}
-          className="w-full px-4 py-3 bg-white hover:bg-slate-50 flex items-center justify-between transition"
-        >
-          <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
-            <Cpu className="w-4 h-4 text-purple-600" />
-            <span>Active Model Profile</span>
-          </div>
-          {openSections.info ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
-        </button>
 
-        {openSections.info && (
-          <div className="px-4 pb-4 pt-1 border-t border-slate-100 text-xs text-slate-600 space-y-2">
-            <div className="font-bold text-slate-800">{activeProfileData.name}</div>
-            <p className="text-[11px] leading-relaxed text-slate-500">{activeProfileData.details}</p>
-            <div className="inline-block px-2 py-0.5 bg-purple-50 text-purple-700 text-[10px] font-bold rounded border border-purple-200">
-              {activeProfileData.badge}
+
+      {/* SECTION 4: AI Explainability (XAI) */}
+      {selectedDam && (
+        <div className="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+          <button 
+            onClick={() => toggleSection('xai')}
+            className="w-full px-4 py-3 bg-white hover:bg-slate-50 flex items-center justify-between transition border-b border-slate-100"
+          >
+            <div className="flex items-center gap-2 font-bold text-xs text-slate-800">
+              <Cpu className="w-4 h-4 text-[#0f766e]" />
+              <span>AI Explanation: {selectedDam.regionName || selectedDam.name}</span>
             </div>
-          </div>
-        )}
-      </div>
+            {openSections.xai ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          </button>
+
+          {openSections.xai && (
+            <div className="p-4 space-y-3">
+              <div className="text-[10px] text-slate-500 leading-relaxed">
+                This chart shows how individual features pushed the suitability score **above** (positive/teal) or **below** (negative/rose) the global river average (baseline: 73).
+              </div>
+              <div className="h-44 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart 
+                    data={Object.entries(getAttributions(selectedDam)).map(([feature, val]) => ({
+                      feature,
+                      value: val,
+                      color: val >= 0 ? '#0f766e' : '#be123c'
+                    }))} 
+                    layout="vertical" 
+                    margin={{ left: -10, right: 10, top: 5, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis type="number" fontSize={9} stroke="#94a3b8" />
+                    <YAxis dataKey="feature" type="category" fontSize={8.5} width={90} stroke="#94a3b8" />
+                    <Tooltip 
+                      contentStyle={{ background: '#ffffff', borderColor: '#e2e8f0', fontSize: '10px', color: '#000' }}
+                      formatter={(value) => [`${value} pts`, 'Score Contribution']}
+                    />
+                    <ReferenceLine x={0} stroke="#cbd5e1" />
+                    <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                      {Object.entries(getAttributions(selectedDam)).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry[1] >= 0 ? '#0f766e' : '#be123c'} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="p-2.5 bg-slate-50 rounded-lg text-[10px] text-slate-500 font-mono flex items-center justify-between">
+                <span>Final Score: <strong>{calculateMCDAScore(selectedDam, weights)}/100</strong></span>
+                <span>Sum of Impacts: <strong>{(Object.values(getAttributions(selectedDam)).reduce((a, b) => a + b, 0)).toFixed(1)} pts</strong></span>
+              </div>
+
+              {/* LCLU Farmland Detail Box */}
+              <div className="p-3 bg-[#fffbeb] border border-[#fef3c7] rounded-xl text-xs space-y-2">
+                <div className="flex items-center gap-1.5 font-bold text-[#b45309]">
+                  <Sprout className="w-4 h-4 text-[#d97706]" />
+                  <span>Cropland Recharged (Satellite LCLU)</span>
+                </div>
+                <div className="text-[11px] leading-relaxed text-amber-900 font-semibold">
+                  Supplies aquifer groundwater recharge to <span className="underline text-amber-950 font-extrabold">{selectedDam.farmlandAcres ? selectedDam.farmlandAcres.toLocaleString() : 0} Acres</span> ({selectedDam.farmlandHa || 0} Hectares) of agricultural fields.
+                </div>
+                <div className="text-[9px] text-amber-800/80 leading-normal border-t border-amber-200/50 pt-1.5 font-medium">
+                  🛰️ Analyzed from Copernicus 10m Land Use land cover classification rasters. Detects active crops inside a 1.5km spatial buffer zone.
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
 
     </div>
   );
