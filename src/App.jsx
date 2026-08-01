@@ -210,8 +210,6 @@ export default function App() {
               onSelectDam={setSelectedDam}
               activeModel={activeModel}
               onSelectModel={setActiveModel}
-              layers={layers}
-              setLayers={setLayers}
             />
           </div>
         </div>
