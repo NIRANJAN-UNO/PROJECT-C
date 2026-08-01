@@ -21,21 +21,21 @@ export const MCDA_PROFILES = {
     color: "emerald",
     details: "Prioritizes flat terrain channels (slope < 2.0°) to maximize storage pool backwater area."
   },
-  'mcda-soil': {
-    name: "Deep Alluvial Recharge Focus",
-    type: "Infiltration Capacity Focus",
-    score: "Permeability Driven",
-    badge: "Soil Infiltration Focus",
-    color: "amber",
-    details: "Prioritizes high-permeability sandy alluvial channels (HSG B) for rapid deep aquifer recharge."
-  },
-  'ml-readiness': {
-    name: "AI Prediction Engine",
-    type: "Machine Learning (K-Means + RandomForest)",
-    score: "AI Predicted",
-    badge: "K-Means AI Predictor",
+  'ml-kmeans': {
+    name: "K-Means Clustering AI",
+    type: "Machine Learning (Unsupervised Clustering)",
+    score: "K-Means Predicted",
+    badge: "Spatial Cluster Zoning",
     color: "blue",
-    details: "Runs scikit-learn K-Means clustering and RandomForestRegressor on Copernicus 30m DEM variables."
+    details: "Groups 115 river reaches into 5 geomorphic clusters based on spatial-elevation features."
+  },
+  'ml-randomforest': {
+    name: "Random Forest Regressor AI",
+    type: "Machine Learning (Decision Tree Regressor)",
+    score: "RF Regressor",
+    badge: "Tree Suitability Scoring",
+    color: "purple",
+    details: "Trains 50 decision trees to predict non-linear suitability scores based on DEM topography."
   }
 };
 
@@ -123,7 +123,6 @@ export function calculateGroundwaterImpact(capturedML, infiltrationRateMmHr = 6.
 
 /**
  * Recalculates MCDA Score for candidate check-dam locations
- * Robust to both Python API and Javascript keys to prevent NaN
  */
 export function calculateMCDAScore(dam, weights) {
   const totalWeight = weights.slope + weights.flow + weights.soil + weights.farmland + weights.width;
@@ -160,10 +159,10 @@ export function calculateMCDAScore(dam, weights) {
  */
 export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-standard', weights) {
   const modelIndexMap = {
-    'mcda-standard':  [12, 36, 60, 84, 108],
-    'mcda-slope':     [5, 25, 48, 72, 98],
-    'mcda-soil':      [18, 42, 68, 92, 112],
-    'ml-readiness':   [0, 20, 40, 65, 85]
+    'mcda-standard':    [12, 36, 60, 84, 108],
+    'mcda-slope':       [5, 25, 48, 72, 98],
+    'ml-kmeans':        [18, 42, 68, 92, 112],
+    'ml-randomforest':  [0, 20, 40, 65, 85]
   };
 
   const indices = modelIndexMap[activeModel] || modelIndexMap['mcda-standard'];
@@ -195,7 +194,8 @@ export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-stand
 
     const nearTown = getNearestVillage(lat, lng);
     const townSuffix = nearTown ? ` (Near ${nearTown})` : "";
-    const predictedTitle = `Candidate Site ${i+1}${townSuffix}`;
+    const prefix = activeModel === 'ml-kmeans' ? "K-Means Cluster" : "RF Regressor";
+    const predictedTitle = `${prefix} Site ${i+1}${townSuffix}`;
 
     return {
       id: `CD-0${i+1}`,

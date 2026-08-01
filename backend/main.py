@@ -12,8 +12,8 @@ from backend.ml_engine import ml_engine
 
 app = FastAPI(
     title="PROJECT C - Real-World Geospatial GIS, ML & Precipitation API",
-    description="Full-stack Python GIS Backend handling COP30 DEM, Real Rainfall Rasters, and K-Means AI Predictions",
-    version="6.0.0"
+    description="Full-stack Python GIS Backend handling COP30 DEM, Real Rainfall Rasters, and K-Means & Random Forest AI Predictions",
+    version="7.0.0"
 )
 
 app.add_middleware(
@@ -85,12 +85,13 @@ class ScanRequest(BaseModel):
 
 @app.post("/api/hydrology/scan")
 def scan_hydrology(req: ScanRequest):
-    if req.profile_key == 'ml-readiness':
-        # Train and run actual machine learning (K-Means Clustering + RandomForestRegressor)
-        predictions = ml_engine.train_and_predict(req.meander_coords)
-        engine_type = "Python scikit-learn (K-Means + RandomForestRegressor)"
+    if req.profile_key == 'ml-kmeans':
+        predictions = ml_engine.predict_kmeans(req.meander_coords)
+        engine_type = "Python scikit-learn (K-Means Clustering)"
+    elif req.profile_key == 'ml-randomforest':
+        predictions = ml_engine.predict_randomforest(req.meander_coords)
+        engine_type = "Python scikit-learn (RandomForestRegressor)"
     else:
-        # Run analytical Multi-Criteria Decision Analysis (MCDA)
         predictions = mcda_engine.generate_candidate_predictions(
             profile_key=req.profile_key,
             user_weights=req.weights,
