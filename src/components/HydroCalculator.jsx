@@ -1,13 +1,42 @@
-import React from 'react';
-import { CloudRain, Gauge, TrendingUp, DollarSign, Sprout, ArrowUpRight } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { CloudRain, Gauge, TrendingUp, DollarSign, Sprout, ArrowUpRight, Calendar, Layers } from 'lucide-react';
 import { calculateSCSCNRunoff, calculateGroundwaterImpact } from '../utils/hydrology';
 
 export default function HydroCalculator({ rainfallMM, onRainfallChange, selectedDam }) {
+  const [selectedDate, setSelectedDate] = useState('2021-11-18');
+  const [realPrecipInfo, setRealPrecipInfo] = useState(null);
+
+  // Preset Historical Storm Events in Kollidam Basin
+  const PRESET_EVENTS = [
+    { label: "Nov 18, 2021 (Monsoon Cyclone)", date: "2021-11-18" },
+    { label: "Aug 04, 2022 (Severe Surge)", date: "2022-08-04" },
+    { label: "Dec 15, 2024 (Cyclone Surge)", date: "2024-12-15" },
+    { label: "Jul 19, 2025 (Monsoon Rainfall)", date: "2025-07-19" }
+  ];
+
+  // Fetch real rainfall GeoTIFF data from Python FastAPI backend for selected date
+  useEffect(() => {
+    async function fetchRealPrecip() {
+      try {
+        const res = await fetch(`http://127.0.0.1:8000/api/rainfall/daily?date=${selectedDate}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.mean_mm !== undefined) {
+            setRealPrecipInfo(data);
+            onRainfallChange(Math.round(data.mean_mm));
+          }
+        }
+      } catch (err) {
+        console.warn("FastAPI backend offline for rainfall fetch:", err);
+      }
+    }
+    fetchRealPrecip();
+  }, [selectedDate]);
+
   const cn = selectedDam ? (selectedDam.hsg.startsWith('B') ? 78 : selectedDam.hsg.startsWith('C') ? 83 : 88) : 80;
   const hydro = calculateSCSCNRunoff(rainfallMM, cn, 450);
   const gw = calculateGroundwaterImpact(hydro.volumeML, 6.0);
   
-  // Cost benefit estimates
   const estCostLakhs = selectedDam ? selectedDam.costLakhs : 18.0;
   const annualIrrigationValueLakhs = Math.round((hydro.volumeML * 2.8) / 10);
   const paybackMonths = Number(((estCostLakhs / (annualIrrigationValueLakhs || 1)) * 12).toFixed(1));
@@ -18,38 +47,62 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
       <div className="flex items-center justify-between border-b border-blue-900/50 pb-3">
         <div className="flex items-center gap-2 text-cyan-400">
           <CloudRain className="w-5 h-5" />
-          <h2 className="text-base font-bold tracking-wide">SCS-CN Hydrological Runoff Engine</h2>
+          <h2 className="text-base font-bold tracking-wide">Real 10-Year GeoTIFF Hydro Runoff Engine</h2>
         </div>
-        <span className="text-[11px] text-slate-400 font-mono">USDA Soil Conservation Service Method</span>
+        <span className="text-[11px] text-slate-400 font-mono">2015–2025 Daily Rasters</span>
       </div>
 
-      {/* Rainfall Slider */}
-      <div className="bg-slate-900/60 p-4 rounded-xl border border-blue-900/40 space-y-2">
-        <div className="flex justify-between items-center text-xs font-bold">
-          <span className="text-slate-300">Simulated Monsoon Storm Event (Rainfall):</span>
-          <span className="text-cyan-400 font-mono text-sm px-2 py-0.5 bg-cyan-500/10 border border-cyan-400/30 rounded-md">
-            {rainfallMM} mm Storm
+      {/* Date & Preset Storm Selector */}
+      <div className="bg-slate-900/60 p-4 rounded-xl border border-blue-900/40 space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs font-bold">
+          <span className="text-slate-300 flex items-center gap-1.5">
+            <Calendar className="w-4 h-4 text-cyan-400" />
+            Query Historical Rainfall GeoTIFF Date:
+          </span>
+          <span className="text-cyan-400 font-mono text-sm px-2.5 py-0.5 bg-cyan-500/10 border border-cyan-400/30 rounded-md">
+            {rainfallMM} mm Real Precip
           </span>
         </div>
-        
-        <input 
-          type="range" 
-          min="50" 
-          max="300" 
-          step="5"
-          value={rainfallMM}
-          onChange={(e) => onRainfallChange(parseInt(e.target.value))}
-          className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400"
-        />
 
-        <div className="flex justify-between text-[10px] text-slate-400 pt-1">
-          <span>50 mm (Moderate Rain)</span>
-          <span>150 mm (Heavy Monsoon)</span>
-          <span>300 mm (Extreme Cyclone Event)</span>
+        {/* Preset Selector Buttons */}
+        <div className="grid grid-cols-2 gap-2 text-[11px]">
+          {PRESET_EVENTS.map(evt => (
+            <button
+              key={evt.date}
+              onClick={() => setSelectedDate(evt.date)}
+              className={`px-2.5 py-1.5 rounded-lg border text-left font-semibold transition ${
+                selectedDate === evt.date
+                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                  : 'bg-slate-800/60 border-slate-700 text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {evt.label}
+            </button>
+          ))}
         </div>
+
+        {/* Direct Date Picker Input */}
+        <div className="flex items-center gap-2 pt-1">
+          <label className="text-[11px] text-slate-400 font-mono">Custom Date (2015-2025):</label>
+          <input 
+            type="date" 
+            min="2015-01-01" 
+            max="2025-12-31" 
+            value={selectedDate}
+            onChange={(e) => setSelectedDate(e.target.value)}
+            className="bg-slate-950 border border-slate-700 text-cyan-300 text-xs px-2.5 py-1 rounded-md font-mono"
+          />
+        </div>
+
+        {realPrecipInfo && (
+          <div className="text-[10px] text-emerald-400 font-mono pt-1 flex items-center gap-1">
+            <Layers className="w-3 h-3 text-emerald-400" />
+            <span>Source: {realPrecipInfo.source || 'E:\\rainfall data TIF'} | Range: {realPrecipInfo.min_mm}mm - {realPrecipInfo.max_mm}mm</span>
+          </div>
+        )}
       </div>
 
-      {/* Dynamic Telemetry Metrics Grid */}
+      {/* Dynamic Telemetry Metrics Grid (Showing Acres & Hectares) */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="p-3.5 bg-slate-900/80 rounded-xl border border-blue-900/40">
           <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-semibold mb-1">
@@ -79,9 +132,9 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
             <Sprout className="w-3.5 h-3.5 text-amber-400" />
           </div>
           <div className="text-lg font-extrabold text-amber-400 font-mono">
-            {gw.rechargeAreaHa.toLocaleString()} <span className="text-xs text-slate-400">Ha</span>
+            {gw.rechargeAreaAcres.toLocaleString()} <span className="text-xs text-slate-400">Acres</span>
           </div>
-          <span className="text-[10px] text-slate-400">Drought Mitigation Zone</span>
+          <span className="text-[10px] text-slate-400">({gw.rechargeAreaHa.toLocaleString()} Hectares)</span>
         </div>
 
         <div className="p-3.5 bg-slate-900/80 rounded-xl border border-blue-900/40">

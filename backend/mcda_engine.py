@@ -57,11 +57,12 @@ class MCDAEngine:
 
         s_slope = max(0.0, 100.0 - (slope_deg * 25.0))
         s_elev = max(0.0, min(100.0, 100.0 - (elev_m * 1.1)))
+        s_flow = 85.0
         s_soil = 95.0 if hsg.startswith("B") else 75.0 if hsg.startswith("C") else 55.0
         s_farm = min(100.0, (farmland_ha / 5000.0) * 100.0)
         s_width = min(100.0, max(20.0, (350.0 - width_m) / 2.0))
 
-        score = (s_slope * w_slope) + (s_elev * 0.15 + s_flow * (w_flow - 0.15)) + (s_soil * w_soil) + (s_farm * w_farm) + (s_width * w_width)
+        score = (s_slope * w_slope) + (s_flow * w_flow) + (s_soil * w_soil) + (s_farm * w_farm) + (s_width * w_width)
         return int(min(99, max(40, round(score))))
 
     def generate_candidate_predictions(
@@ -70,9 +71,6 @@ class MCDAEngine:
         user_weights: Dict[str, float] = None,
         meander_coords: List[List[float]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Dynamically extracts candidate check-dam locations from COP30 DEM and computes real MCDA scores
-        """
         if profile_key not in MCDA_PROFILES:
             profile_key = 'mcda-standard'
         

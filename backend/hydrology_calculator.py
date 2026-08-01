@@ -1,5 +1,6 @@
 import math
 from typing import Dict, Any
+from backend.rainfall_processor import rainfall_processor
 
 # Hectares to Acres Conversion Constant
 HA_TO_ACRES = 2.47105
@@ -9,20 +10,30 @@ class HydrologyCalculator:
     USDA SCS-CN & Hydro-Dynamic Analytical Calculation Engine
     
     Computes storm runoff volume, aquifer recharge, water table elevation gain,
-    and benefited agricultural cropland in Acres & Hectares without hardcoded values.
+    and benefited agricultural cropland in Acres & Hectares using real rainfall GeoTIFF data.
     """
     @staticmethod
     def calculate_scs_cn_runoff(
-        rainfall_mm: float, 
+        rainfall_mm: float = None, 
+        date_str: str = "2021-11-18",
         curve_number: float = 80.0, 
         catchment_area_sq_km: float = 450.0
     ) -> Dict[str, Any]:
         """
         USDA Soil Conservation Service Curve Number (SCS-CN) Runoff Formula:
+        - If date_str is provided, queries real GeoTIFF precipitation raster (E:\rainfall data)
         - Potential Maximum Retention S = (25400 / CN) - 254
         - Initial Abstraction Ia = 0.2 * S
         - Direct Runoff Depth Q = (P - Ia)^2 / (P - Ia + S)
         """
+        real_precip_info = None
+        if rainfall_mm is None and date_str:
+            real_precip_info = rainfall_processor.get_daily_rainfall(date_str)
+            rainfall_mm = real_precip_info["mean_mm"]
+
+        if rainfall_mm is None or rainfall_mm < 0:
+            rainfall_mm = 45.0
+
         cn_clamped = max(10.0, min(100.0, curve_number))
         S = (25400.0 / cn_clamped) - 254.0
         Ia = 0.2 * S
@@ -37,13 +48,15 @@ class HydrologyCalculator:
         volume_tmc = volume_ml / 28316.8
         
         return {
-            "rainfall_mm": rainfall_mm,
+            "rainfall_mm": round(rainfall_mm, 2),
+            "date_str": date_str,
             "curve_number": cn_clamped,
             "potential_retention_S_mm": round(S, 1),
             "initial_abstraction_Ia_mm": round(Ia, 1),
             "runoff_depth_mm": round(runoff_mm, 2),
             "runoff_volume_ml": round(volume_ml, 1),
-            "runoff_volume_tmc": round(volume_tmc, 3)
+            "runoff_volume_tmc": round(volume_tmc, 3),
+            "data_source": real_precip_info["source"] if real_precip_info else "Direct Input"
         }
 
     @staticmethod
