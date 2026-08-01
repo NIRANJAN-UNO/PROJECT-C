@@ -4,43 +4,43 @@ import numpy as np
 import rasterio
 from typing import Dict, Any, List, Tuple
 
+# File location for Digital Elevation Model (DEM) raster file
 DEM_FILE_PATH = "E:/output_hh.tif"
 
 class DEMProcessor:
     """
-    Copernicus 30m Global DEM (COP-DEM-30) Raster Processing Engine
-    
-    Reads 1-arc-second (~30m resolution) elevation raster data, computes terrain slope,
-    aspect, terrain statistics, and extracts dynamic candidate check-dam sites.
+    Reads ground elevation data (30m resolution), calculates terrain slope 
+    and aspect angles, and finds potential locations for dams.
     """
     def __init__(self, filepath: str = DEM_FILE_PATH):
         self.filepath = filepath
         self.dataset = None
         self.array = None
-        self.cell_size_m = 30.0  # Approx 1 arc-second pixel resolution
+        self.cell_size_m = 30.0  # Cell size of each grid square in meters
         self.load_raster()
 
     def load_raster(self) -> bool:
+        """Opens the elevation file and loads terrain values into memory."""
         if os.path.exists(self.filepath):
             try:
                 self.dataset = rasterio.open(self.filepath)
                 self.array = self.dataset.read(1)
-                print(f"[DEMProcessor] Successfully initialized GeoTIFF: {self.filepath} ({self.dataset.width}x{self.dataset.height})")
+                print(f"[DEMProcessor] Elevation data loaded successfully: {self.filepath} ({self.dataset.width}x{self.dataset.height})")
                 return True
-            except Exception as e:
-                print(f"[DEMProcessor] Error reading GeoTIFF: {e}")
+            except Exception as load_err:
+                print(f"[DEMProcessor] Could not read elevation file: {load_err}")
                 return False
         else:
-            print(f"[DEMProcessor] GeoTIFF file not found at: {self.filepath}")
+            print(f"[DEMProcessor] Elevation file not found at: {self.filepath}")
             return False
 
     def get_info(self) -> Dict[str, Any]:
-        """Returns metadata and spatial statistics derived directly from the DEM raster"""
+        """Returns height statistics and summary information for the elevation map."""
         if self.dataset is None:
             return {"error": "DEM raster not loaded"}
         
-        bounds = self.dataset.bounds
-        valid_pixels = self.array[~np.isnan(self.array) & (self.array > -9000)]
+        map_bounds = self.dataset.bounds
+        valid_heights = self.array[~np.isnan(self.array) & (self.array > -9000)]
 
         return {
             "filename": os.path.basename(self.filepath),
@@ -48,58 +48,65 @@ class DEMProcessor:
             "height": self.dataset.height,
             "crs": str(self.dataset.crs),
             "bounds": {
-                "min_lng": bounds.left,
-                "max_lng": bounds.right,
-                "min_lat": bounds.bottom,
-                "max_lat": bounds.top
+                "min_lng": map_bounds.left,
+                "max_lng": map_bounds.right,
+                "min_lat": map_bounds.bottom,
+                "max_lat": map_bounds.top
             },
             "pixel_scale_deg": self.dataset.transform.a,
             "spatial_resolution": "~30m (1 arc-second Copernicus DEM)",
-            "min_elevation_m": round(float(np.min(valid_pixels)), 2),
-            "max_elevation_m": round(float(np.max(valid_pixels)), 2),
-            "mean_elevation_m": round(float(np.mean(valid_pixels)), 2),
-            "std_elevation_m": round(float(np.std(valid_pixels)), 2)
+            "min_elevation_m": round(float(np.min(valid_heights)), 2),
+            "max_elevation_m": round(float(np.max(valid_heights)), 2),
+            "mean_elevation_m": round(float(np.mean(valid_heights)), 2),
+            "std_elevation_m": round(float(np.std(valid_heights)), 2)
         }
 
     def get_elevation_at_point(self, lat: float, lng: float) -> float:
-        """Samples exact terrain elevation in meters MSL at (lat, lng) from raster"""
+        """Returns the ground height in meters at a given latitude and longitude coordinate."""
         if self.dataset is None:
             return 45.0
         
         try:
-            row, col = self.dataset.index(lng, lat)
-            if 0 <= row < self.dataset.height and 0 <= col < self.dataset.width:
-                val = float(self.array[row, col])
-                return round(val, 2) if not np.isnan(val) and val > -9000 else 0.0
+            row_idx, col_idx = self.dataset.index(lng, lat)
+            if 0 <= row_idx < self.dataset.height and 0 <= col_idx < self.dataset.width:
+                height_val = float(self.array[row_idx, col_idx])
+                return round(height_val, 2) if not np.isnan(height_val) and height_val > -9000 else 0.0
             return 0.0
         except Exception:
             return 45.0
 
     def calculate_slope_and_aspect(self, lat: float, lng: float) -> Tuple[float, float]:
         """
-        Calculates terrain slope (degrees) and aspect (degrees) using a 3x3 finite-difference window
+        Calculates how steep the land is (slope in degrees) and 
+        which direction the slope faces (aspect in degrees).
         """
         if self.dataset is None:
             return (0.8, 180.0)
         
         try:
-            row, col = self.dataset.index(lng, lat)
-            if 1 <= row < self.dataset.height - 1 and 1 <= col < self.dataset.width - 1:
-                win = self.array[row-1:row+2, col-1:col+2]
+            row_idx, col_idx = self.dataset.index(lng, lat)
+            if 1 <= row_idx < self.dataset.height - 1 and 1 <= col_idx < self.dataset.width - 1:
+                # Get 3x3 grid of surrounding elevation values
+                neighborhood_grid = self.array[row_idx-1:row_idx+2, col_idx-1:col_idx+2]
                 
-                # Horn's method weighting
-                dz_dx = ((win[0, 2] + 2*win[1, 2] + win[2, 2]) - (win[0, 0] + 2*win[1, 0] + win[2, 0])) / (8 * self.cell_size_m)
-                dz_dy = ((win[2, 0] + 2*win[2, 1] + win[2, 2]) - (win[0, 0] + 2*win[0, 1] + win[0, 2])) / (8 * self.cell_size_m)
+                # Calculate height changes along horizontal (X) and vertical (Y) axes
+                change_in_x = ((neighborhood_grid[0, 2] + 2*neighborhood_grid[1, 2] + neighborhood_grid[2, 2]) - 
+                               (neighborhood_grid[0, 0] + 2*neighborhood_grid[1, 0] + neighborhood_grid[2, 0])) / (8 * self.cell_size_m)
                 
-                slope_rad = math.atan(math.sqrt(dz_dx**2 + dz_dy**2))
-                slope_deg = round(math.degrees(slope_rad), 2)
+                change_in_y = ((neighborhood_grid[2, 0] + 2*neighborhood_grid[2, 1] + neighborhood_grid[2, 2]) - 
+                               (neighborhood_grid[0, 0] + 2*neighborhood_grid[0, 1] + neighborhood_grid[0, 2])) / (8 * self.cell_size_m)
                 
-                aspect_rad = math.atan2(dz_dy, -dz_dx)
-                aspect_deg = math.degrees(aspect_rad)
-                if aspect_deg < 0:
-                    aspect_deg += 360.0
+                # Compute steepness angle in degrees
+                slope_radians = math.atan(math.sqrt(change_in_x**2 + change_in_y**2))
+                slope_degrees = round(math.degrees(slope_radians), 2)
                 
-                return (slope_deg, round(aspect_deg, 1))
+                # Compute direction angle facing in degrees
+                aspect_radians = math.atan2(change_in_y, -change_in_x)
+                aspect_degrees = math.degrees(aspect_radians)
+                if aspect_degrees < 0:
+                    aspect_degrees += 360.0
+                
+                return (slope_degrees, round(aspect_degrees, 1))
             return (0.8, 180.0)
         except Exception:
             return (0.8, 180.0)
@@ -110,43 +117,44 @@ class DEMProcessor:
         num_sites: int = 5
     ) -> List[Dict[str, Any]]:
         """
-        Scans all river meander coordinates against COP30 DEM, detects low-slope depression reaches,
-        and dynamically extracts candidate check-dam locations based on real terrain topology.
+        Scans river coordinates using elevation data to find flat, 
+        suitable places for building water structures.
         """
         if not meander_coords:
             return []
 
-        sampled_points = []
-        for idx, pt in enumerate(meander_coords):
-            lat, lng = pt[0], pt[1]
-            elev = self.get_elevation_at_point(lat, lng)
-            slope, aspect = self.calculate_slope_and_aspect(lat, lng)
+        collected_points = []
+        for point_idx, point_coords in enumerate(meander_coords):
+            lat, lng = point_coords[0], point_coords[1]
+            height_m = self.get_elevation_at_point(lat, lng)
+            slope_deg, aspect_deg = self.calculate_slope_and_aspect(lat, lng)
             
-            sampled_points.append({
-                "index": idx,
+            collected_points.append({
+                "index": point_idx,
                 "lat": lat,
                 "lng": lng,
-                "elev": elev,
-                "slope": slope,
-                "aspect": aspect
+                "elev": height_m,
+                "slope": slope_deg,
+                "aspect": aspect_deg
             })
 
-        # Sort by lowest slope and optimal storage elevation
-        sampled_points.sort(key=lambda p: (p["slope"], p["elev"]))
+        # Sort points to prioritize gentle slopes and lower heights
+        collected_points.sort(key=lambda item: (item["slope"], item["elev"]))
         
-        # Select spatially distributed top candidate sites
-        selected = []
-        min_dist_idx = max(5, len(meander_coords) // (num_sites + 1))
+        # Pick well-spaced locations along the river
+        selected_locations = []
+        minimum_spacing = max(5, len(meander_coords) // (num_sites + 1))
         
-        for pt in sampled_points:
-            if len(selected) >= num_sites:
+        for location in collected_points:
+            if len(selected_locations) >= num_sites:
                 break
-            if all(abs(pt["index"] - sel["index"]) >= min_dist_idx for sel in selected):
-                selected.append(pt)
+            if all(abs(location["index"] - picked["index"]) >= minimum_spacing for picked in selected_locations):
+                selected_locations.append(location)
 
-        # Sort selected back along upstream-to-downstream order
-        selected.sort(key=lambda p: p["index"])
-        return selected
+        # Re-sort into river flow order (from start to end)
+        selected_locations.sort(key=lambda item: item["index"])
+        return selected_locations
 
-# Singleton instance
+# Shared instance for use across the application
 dem_processor = DEMProcessor()
+

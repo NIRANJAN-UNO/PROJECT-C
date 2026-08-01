@@ -4,14 +4,13 @@ import numpy as np
 import rasterio
 from typing import Dict, Any, List
 
+# Folder path where rainfall TIF files are stored
 RAINFALL_DIR = "E:/rainfall data"
 
 class RainfallProcessor:
     """
-    10-Year Daily Precipitation GeoTIFF Processing Engine (2015 - 2025)
-    
-    Processes 4,018 daily gridded rainfall TIF files covering the Kollidam River basin
-    (78.05°E - 79.95°E, 10.60°N - 11.25°N) at ~5.5km grid cell resolution.
+    Reads daily rainfall data files from a folder and extracts 
+    rainfall amounts for dates and locations.
     """
     def __init__(self, folder: str = RAINFALL_DIR):
         self.folder = folder
@@ -19,15 +18,17 @@ class RainfallProcessor:
         self.scan_files()
 
     def scan_files(self):
+        """Finds all TIF files in the folder and saves them by date key."""
         if os.path.exists(self.folder):
-            files = glob.glob(os.path.join(self.folder, "*.tif"))
-            for f in files:
-                basename = os.path.basename(f)
-                date_key = basename.replace(".tif", "").replace("-", "")
-                self.tif_files[date_key] = f
-            print(f"[RainfallProcessor] Indexed {len(self.tif_files)} daily rainfall TIF rasters (2015–2025)")
+            all_files = glob.glob(os.path.join(self.folder, "*.tif"))
+            for file_path in all_files:
+                file_name = os.path.basename(file_path)
+                formatted_date = file_name.replace(".tif", "").replace("-", "")
+                self.tif_files[formatted_date] = file_path
+            print(f"[RainfallProcessor] Found {len(self.tif_files)} daily rainfall files.")
 
     def get_info(self) -> Dict[str, Any]:
+        """Returns details about the rainfall files dataset."""
         return {
             "folder": self.folder,
             "total_files": len(self.tif_files),
@@ -37,15 +38,12 @@ class RainfallProcessor:
         }
 
     def get_daily_rainfall(self, date_str: str) -> Dict[str, Any]:
-        """
-        Reads daily GeoTIFF for a date (format 'YYYY-MM-DD' or 'YYYYMMDD')
-        and extracts actual min, max, mean basin rainfall in mm.
-        """
-        clean_date = date_str.replace("-", "").strip()
-        filepath = self.tif_files.get(clean_date)
+        """Calculates minimum, maximum, and average rainfall on a given date."""
+        input_date_clean = date_str.replace("-", "").strip()
+        file_location = self.tif_files.get(input_date_clean)
 
-        if not filepath or not os.path.exists(filepath):
-            # Default fallback if specific file is missing
+        if not file_location or not os.path.exists(file_location):
+            # Return default fallback numbers if file is missing
             return {
                 "date": date_str,
                 "found": False,
@@ -56,42 +54,43 @@ class RainfallProcessor:
             }
 
         try:
-            with rasterio.open(filepath) as src:
-                data = src.read(1)
-                valid = data[~np.isnan(data) & (data >= 0) & (data < 1000)]
+            with rasterio.open(file_location) as raster_file:
+                rain_grid = raster_file.read(1)
+                valid_rain_values = rain_grid[~np.isnan(rain_grid) & (rain_grid >= 0) & (rain_grid < 1000)]
                 
-                if len(valid) == 0:
+                if len(valid_rain_values) == 0:
                     return {"date": date_str, "found": True, "min_mm": 0.0, "max_mm": 0.0, "mean_mm": 0.0}
                 
                 return {
                     "date": date_str,
                     "found": True,
-                    "min_mm": round(float(np.min(valid)), 2),
-                    "max_mm": round(float(np.max(valid)), 2),
-                    "mean_mm": round(float(np.mean(valid)), 2),
-                    "source": f"Real GeoTIFF ({os.path.basename(filepath)})"
+                    "min_mm": round(float(np.min(valid_rain_values)), 2),
+                    "max_mm": round(float(np.max(valid_rain_values)), 2),
+                    "mean_mm": round(float(np.mean(valid_rain_values)), 2),
+                    "source": f"Real GeoTIFF ({os.path.basename(file_location)})"
                 }
-        except Exception as e:
-            print(f"[RainfallProcessor] Error reading TIF {filepath}: {e}")
-            return {"date": date_str, "found": False, "error": str(e), "mean_mm": 45.0}
+        except Exception as read_error:
+            print(f"[RainfallProcessor] Error reading TIF file {file_location}: {read_error}")
+            return {"date": date_str, "found": False, "error": str(read_error), "mean_mm": 45.0}
 
     def get_point_rainfall(self, lat: float, lng: float, date_str: str) -> float:
-        """Samples spatial rainfall intensity (mm) at exact GPS coordinates for any given date"""
-        clean_date = date_str.replace("-", "").strip()
-        filepath = self.tif_files.get(clean_date)
+        """Finds rainfall amount at a specific latitude and longitude coordinate."""
+        input_date_clean = date_str.replace("-", "").strip()
+        file_location = self.tif_files.get(input_date_clean)
         
-        if not filepath or not os.path.exists(filepath):
+        if not file_location or not os.path.exists(file_location):
             return 45.0
         
         try:
-            with rasterio.open(filepath) as src:
-                row, col = src.index(lng, lat)
-                if 0 <= row < src.height and 0 <= col < src.width:
-                    val = float(src.read(1)[row, col])
-                    return round(val, 2) if not np.isnan(val) and val >= 0 else 0.0
+            with rasterio.open(file_location) as raster_file:
+                row_index, col_index = raster_file.index(lng, lat)
+                if 0 <= row_index < raster_file.height and 0 <= col_index < raster_file.width:
+                    rain_amount = float(raster_file.read(1)[row_index, col_index])
+                    return round(rain_amount, 2) if not np.isnan(rain_amount) and rain_amount >= 0 else 0.0
                 return 0.0
         except Exception:
             return 45.0
 
-# Singleton instance
+# Shared instance for use across the application
 rainfall_processor = RainfallProcessor()
+

@@ -6,6 +6,7 @@ import HydroCalculator from './components/HydroCalculator';
 import ElevationChart from './components/ElevationChart';
 import CaseStudySimulator from './components/CaseStudySimulator';
 import GEEAnalyticsModal from './components/GEEAnalyticsModal';
+import MLBenchmarkPanel from './components/MLBenchmarkPanel';
 
 import { HIGH_RES_RIVER_MEANDER } from './data/kollidamData';
 import { scanRiverChannelForDams, HA_TO_ACRES, calculateSCSCNRunoff, calculateGroundwaterImpact } from './utils/hydrology';
@@ -254,6 +255,12 @@ export default function App() {
               />
             </div>
           </div>
+
+          {/* Comparative AI Models & Benchmarking Table */}
+          <MLBenchmarkPanel 
+            activeModel={activeModel}
+            onSelectModel={setActiveModel}
+          />
 
           {/* Lower Section: Hydrological Calculator & Elevation Profile Chart */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">

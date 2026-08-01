@@ -3,14 +3,13 @@ import numpy as np
 import rasterio
 from typing import Dict, Any
 
+# File location for soil data raster
 SOIL_FILE_PATH = "E:/soildata.tif"
 
 class SoilProcessor:
     """
-    Saturated Hydraulic Conductivity (Ksat) Soil Raster Processing Engine
-    
-    Reads E:/soildata.tif (487x314 grid covering Kollidam basin) to extract
-    real-world soil permeability, infiltration rate, and Hydrologic Soil Group (HSG).
+    Handles reading soil property raster maps and looking up soil 
+    type and permeability at given coordinates.
     """
     def __init__(self, filepath: str = SOIL_FILE_PATH):
         self.filepath = filepath
@@ -19,73 +18,72 @@ class SoilProcessor:
         self.load_raster()
 
     def load_raster(self) -> bool:
+        """Opens and reads the soil data file into memory."""
         if os.path.exists(self.filepath):
             try:
                 self.dataset = rasterio.open(self.filepath)
                 self.array = self.dataset.read(1)
-                print(f"[SoilProcessor] Successfully loaded soil raster: {self.filepath} ({self.dataset.width}x{self.dataset.height})")
+                print(f"[SoilProcessor] Loaded soil data from: {self.filepath} ({self.dataset.width}x{self.dataset.height})")
                 return True
-            except Exception as e:
-                print(f"[SoilProcessor] Error reading soil raster: {e}")
+            except Exception as read_err:
+                print(f"[SoilProcessor] Failed to open soil file: {read_err}")
                 return False
         else:
-            print(f"[SoilProcessor] Soil raster not found at: {self.filepath}")
+            print(f"[SoilProcessor] Soil file missing at location: {self.filepath}")
             return False
 
     def get_info(self) -> Dict[str, Any]:
+        """Provides summary info about the loaded soil file."""
         if self.dataset is None:
             return {"error": "Soil raster not loaded"}
-        bounds = self.dataset.bounds
+        area_bounds = self.dataset.bounds
         return {
             "filename": os.path.basename(self.filepath),
             "width": self.dataset.width,
             "height": self.dataset.height,
             "crs": str(self.dataset.crs),
             "bounds": {
-                "min_lng": bounds.left,
-                "max_lng": bounds.right,
-                "min_lat": bounds.bottom,
-                "max_lat": bounds.top
+                "min_lng": area_bounds.left,
+                "max_lng": area_bounds.right,
+                "min_lat": area_bounds.bottom,
+                "max_lat": area_bounds.top
             }
         }
 
     def get_soil_at_point(self, lat: float, lng: float) -> Dict[str, Any]:
-        """
-        Samples soil Ksat (mm/day) at coordinate. If coordinate lands on a 
-        background pixel (0 or NaN), performs a 3x3 window nearest-neighbor query.
-        """
+        """Looks up soil details (group and permeability rate) for a lat/lng location."""
         if self.dataset is None:
             return {"hsg": "B (Alluvial Loam)", "ksat_mm_hr": 14.5}
         
-        val = 320.0
+        soil_rate = 320.0
         try:
-            row, col = self.dataset.index(lng, lat)
-            if 0 <= row < self.dataset.height and 0 <= col < self.dataset.width:
-                val = float(self.array[row, col])
+            row_idx, col_idx = self.dataset.index(lng, lat)
+            if 0 <= row_idx < self.dataset.height and 0 <= col_idx < self.dataset.width:
+                soil_rate = float(self.array[row_idx, col_idx])
                 
-                # If background pixel (0 or NaN), perform 3x3 window search for closest soil class
-                if np.isnan(val) or val <= 0.0 or val > 10000:
-                    r_min = max(0, row - 1)
-                    r_max = min(self.dataset.height, row + 2)
-                    c_min = max(0, col - 1)
-                    c_max = min(self.dataset.width, col + 2)
+                # If pixel value is invalid or zero, search nearby neighboring pixels
+                if np.isnan(soil_rate) or soil_rate <= 0.0 or soil_rate > 10000:
+                    start_row = max(0, row_idx - 1)
+                    end_row = min(self.dataset.height, row_idx + 2)
+                    start_col = max(0, col_idx - 1)
+                    end_col = min(self.dataset.width, col_idx + 2)
                     
-                    window = self.array[r_min:r_max, c_min:c_max]
-                    valid_window = window[~np.isnan(window) & (window > 0)]
+                    neighbor_box = self.array[start_row:end_row, start_col:end_col]
+                    valid_pixels = neighbor_box[~np.isnan(neighbor_box) & (neighbor_box > 0)]
                     
-                    if len(valid_window) > 0:
-                        val = float(np.mean(valid_window))
+                    if len(valid_pixels) > 0:
+                        soil_rate = float(np.mean(valid_pixels))
                     else:
-                        val = 320.0 # Basin mean fallback
+                        soil_rate = 320.0
             else:
-                val = 320.0
+                soil_rate = 320.0
         except Exception:
-            val = 320.0
+            soil_rate = 320.0
 
-        # Convert Ksat from mm/day to mm/hr
-        ksat_mm_hr = round(val / 24.0, 2)
+        # Change permeability rate from mm/day to mm/hr
+        ksat_mm_hr = round(soil_rate / 24.0, 2)
 
-        # Hydrologic Soil Group classification
+        # Categorize soil into standard groups based on infiltration speed
         if ksat_mm_hr > 15.0:
             hsg = "A (Sandy, High Permeability)"
         elif ksat_mm_hr > 10.0:
@@ -98,8 +96,9 @@ class SoilProcessor:
         return {
             "hsg": hsg,
             "ksat_mm_hr": ksat_mm_hr,
-            "raw_ksat_mm_day": round(val, 1)
+            "raw_ksat_mm_day": round(soil_rate, 1)
         }
 
-# Singleton instance
+# Shared instance for use across the application
 soil_processor = SoilProcessor()
+

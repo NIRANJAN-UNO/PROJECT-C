@@ -2,15 +2,13 @@ import math
 from typing import Dict, Any
 from backend.rainfall_processor import rainfall_processor
 
-# Hectares to Acres Conversion Constant
+# Factor used to convert Hectares to Acres
 HA_TO_ACRES = 2.47105
 
 class HydrologyCalculator:
     """
-    USDA SCS-CN & Hydro-Dynamic Analytical Calculation Engine
-    
-    Computes storm runoff volume, aquifer recharge, water table elevation gain,
-    and benefited agricultural cropland in Acres & Hectares using real rainfall GeoTIFF data.
+    Calculates rainwater runoff volume and estimates the increase in 
+    underground water levels from stored rainfall.
     """
     @staticmethod
     def calculate_scs_cn_runoff(
@@ -19,37 +17,38 @@ class HydrologyCalculator:
         curve_number: float = 80.0, 
         catchment_area_sq_km: float = 450.0
     ) -> Dict[str, Any]:
-        real_precip_info = None
+        """Calculates total surface water runoff from rain depth and soil curve number."""
+        daily_rain_details = None
         if rainfall_mm is None and date_str:
-            real_precip_info = rainfall_processor.get_daily_rainfall(date_str)
-            rainfall_mm = real_precip_info["mean_mm"]
+            daily_rain_details = rainfall_processor.get_daily_rainfall(date_str)
+            rainfall_mm = daily_rain_details["mean_mm"]
 
         if rainfall_mm is None or rainfall_mm < 0:
             rainfall_mm = 45.0
 
-        cn_clamped = max(10.0, min(100.0, curve_number))
-        S = (25400.0 / cn_clamped) - 254.0
-        Ia = 0.2 * S
+        valid_curve_number = max(10.0, min(100.0, curve_number))
+        max_soil_retention = (25400.0 / valid_curve_number) - 254.0
+        initial_water_loss = 0.2 * max_soil_retention
         
-        runoff_mm = 0.0
-        if rainfall_mm > Ia:
-            num = (rainfall_mm - Ia) ** 2
-            den = (rainfall_mm - Ia) + S
-            runoff_mm = num / den if den > 0 else 0.0
+        runoff_depth_mm = 0.0
+        if rainfall_mm > initial_water_loss:
+            numerator = (rainfall_mm - initial_water_loss) ** 2
+            denominator = (rainfall_mm - initial_water_loss) + max_soil_retention
+            runoff_depth_mm = numerator / denominator if denominator > 0 else 0.0
         
-        volume_ml = runoff_mm * catchment_area_sq_km
-        volume_tmc = volume_ml / 28316.8
+        water_volume_ml = runoff_depth_mm * catchment_area_sq_km
+        water_volume_tmc = water_volume_ml / 28316.8
         
         return {
             "rainfall_mm": round(rainfall_mm, 2),
             "date_str": date_str,
-            "curve_number": cn_clamped,
-            "potential_retention_S_mm": round(S, 1),
-            "initial_abstraction_Ia_mm": round(Ia, 1),
-            "runoff_depth_mm": round(runoff_mm, 2),
-            "runoff_volume_ml": round(volume_ml, 1),
-            "runoff_volume_tmc": round(volume_tmc, 3),
-            "data_source": real_precip_info["source"] if real_precip_info else "Direct Input"
+            "curve_number": valid_curve_number,
+            "potential_retention_S_mm": round(max_soil_retention, 1),
+            "initial_abstraction_Ia_mm": round(initial_water_loss, 1),
+            "runoff_depth_mm": round(runoff_depth_mm, 2),
+            "runoff_volume_ml": round(water_volume_ml, 1),
+            "runoff_volume_tmc": round(water_volume_tmc, 3),
+            "data_source": daily_rain_details["source"] if daily_rain_details else "Direct Input"
         }
 
     @staticmethod
@@ -59,22 +58,21 @@ class HydrologyCalculator:
         est_cost_lakhs: float = 18.0
     ) -> Dict[str, Any]:
         """
-        Computes groundwater aquifer table elevation rise (Δh meters) using a sub-linear 
-        recharge zone scaling to simulate localized pool infiltration.
+        Estimates underground water level rise (in meters) and the benefited land area.
         """
-        specific_yield = 0.12  # Alluvial aquifer specific yield
+        soil_yield_ratio = 0.12  # Standard soil yield ratio for alluvial ground
         
-        # Sub-linear square root scaling of recharge area to model realistic mounding
+        # Calculate recharge spread area based on stored water volume
         recharge_area_ha = round(5.0 + math.sqrt(captured_ml) * 3.5, 1)
         recharge_area_acres = round(recharge_area_ha * HA_TO_ACRES)
         
-        volume_m3 = captured_ml * 1000.0
-        area_m2 = recharge_area_ha * 10000.0
+        water_cubic_meters = captured_ml * 1000.0
+        recharge_area_sq_meters = recharge_area_ha * 10000.0
         
-        delta_h_meters = volume_m3 / (area_m2 * specific_yield) if area_m2 > 0 else 0.0
-        delta_h_meters = min(5.5, delta_h_meters)
+        water_level_rise_m = water_cubic_meters / (recharge_area_sq_meters * soil_yield_ratio) if recharge_area_sq_meters > 0 else 0.0
+        water_level_rise_m = min(5.5, water_level_rise_m)
         
-        radius_km = math.sqrt(area_m2 / math.pi) / 1000.0 if area_m2 > 0 else 0.0
+        recharge_radius_km = math.sqrt(recharge_area_sq_meters / math.pi) / 1000.0 if recharge_area_sq_meters > 0 else 0.0
         
         annual_irrigation_value_lakhs = round((captured_ml * 2.8) / 10.0)
         payback_months = round((est_cost_lakhs / max(1.0, annual_irrigation_value_lakhs)) * 12.0, 1)
@@ -83,11 +81,12 @@ class HydrologyCalculator:
             "captured_ml": captured_ml,
             "recharge_area_ha": recharge_area_ha,
             "recharge_area_acres": recharge_area_acres,
-            "groundwater_gain_m": round(delta_h_meters, 2),
-            "recharge_radius_km": round(radius_km, 2),
+            "groundwater_gain_m": round(water_level_rise_m, 2),
+            "recharge_radius_km": round(recharge_radius_km, 2),
             "annual_irrigation_value_lakhs": annual_irrigation_value_lakhs,
             "payback_months": payback_months
         }
 
-# Singleton instance
+# Shared instance for use across the application
 hydrology_calc = HydrologyCalculator()
+

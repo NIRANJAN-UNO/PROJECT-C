@@ -10,178 +10,177 @@ from backend.hydrology_calculator import HA_TO_ACRES, hydrology_calc
 
 class MLEngine:
     """
-    Geospatial Machine Learning Engine
-    
-    Implements:
-    - KMeans Clustering for unsupervised spatial reach partition.
-    - RandomForestRegressor for trained non-linear suitability prediction.
+    Machine Learning engine that uses clustering and regression 
+    models to suggest dam locations.
     """
     def __init__(self):
         self.kmeans = KMeans(n_clusters=5, random_state=42, n_init='auto')
         self.regressor = RandomForestRegressor(n_estimators=50, random_state=42)
 
     def extract_features(self, meander_coords: List[List[float]]) -> tuple:
-        features = []
-        point_data = []
-        for idx, pt in enumerate(meander_coords):
-            lat, lng = pt[0], pt[1]
-            elev = dem_processor.get_elevation_at_point(lat, lng)
-            slope, aspect = dem_processor.calculate_slope_and_aspect(lat, lng)
+        """Reads terrain elevation, slope, aspect, and soil values for each point along the river."""
+        feature_matrix = []
+        point_details_list = []
+        for index_pos, point in enumerate(meander_coords):
+            lat, lng = point[0], point[1]
+            height_m = dem_processor.get_elevation_at_point(lat, lng)
+            slope_deg, aspect_deg = dem_processor.calculate_slope_and_aspect(lat, lng)
             
-            # Query soil data
+            # Read soil infiltration capacity
             soil_info = soil_processor.get_soil_at_point(lat, lng)
-            ksat = soil_info["ksat_mm_hr"]
+            ksat_rate = soil_info["ksat_mm_hr"]
             
-            # Feature Vector: [Elevation, Slope, Aspect, Ksat, Index]
-            features.append([elev, slope, aspect, ksat, float(idx)])
-            point_data.append({
+            # Feature array: [Elevation, Slope, Aspect, Soil Permeability, Index]
+            feature_matrix.append([height_m, slope_deg, aspect_deg, ksat_rate, float(index_pos)])
+            point_details_list.append({
                 "lat": lat,
                 "lng": lng,
-                "elev": elev,
-                "slope": slope,
-                "aspect": aspect,
-                "ksat": ksat,
+                "elev": height_m,
+                "slope": slope_deg,
+                "aspect": aspect_deg,
+                "ksat": ksat_rate,
                 "hsg": soil_info["hsg"],
-                "index": idx
+                "index": index_pos
             })
-        return np.array(features), point_data
+        return np.array(feature_matrix), point_details_list
 
     def predict_kmeans(self, meander_coords: List[List[float]]) -> List[Dict[str, Any]]:
-        """Predicts locations using K-Means clustering centers"""
-        X, point_data = self.extract_features(meander_coords)
-        if len(X) == 0:
+        """Groups river coordinates into 5 geographic clusters using K-Means and picks the center of each group."""
+        X_features, point_details_list = self.extract_features(meander_coords)
+        if len(X_features) == 0:
             return []
 
-        self.kmeans.fit(X)
-        labels = self.kmeans.labels_
-        centroids = self.kmeans.cluster_centers_
+        self.kmeans.fit(X_features)
+        group_labels = self.kmeans.labels_
+        center_points = self.kmeans.cluster_centers_
 
-        # Dynamic target calculation for RandomForest scoring
-        y_targets = [90.0 - (f[1] * 12.0) - (f[0] * 0.1) + (f[3] * 0.5) for f in X]
-        self.regressor.fit(X, y_targets)
-        predicted_scores = self.regressor.predict(X)
+        # Calculate target suitability scores for training
+        target_scores = [90.0 - (feat[1] * 12.0) - (feat[0] * 0.1) + (feat[3] * 0.5) for feat in X_features]
+        self.regressor.fit(X_features, target_scores)
+        model_scores = self.regressor.predict(X_features)
 
-        candidate_points = []
-        for cluster_id in range(5):
-            cluster_indices = np.where(labels == cluster_id)[0]
-            if len(cluster_indices) == 0:
+        chosen_candidate_points = []
+        for group_id in range(5):
+            member_indices = np.where(group_labels == group_id)[0]
+            if len(member_indices) == 0:
                 continue
             
-            centroid = centroids[cluster_id]
-            distances = np.linalg.norm(X[cluster_indices] - centroid, axis=1)
-            best_idx = cluster_indices[np.argmin(distances)]
-            pt = point_data[best_idx]
+            center = center_points[group_id]
+            distances_from_center = np.linalg.norm(X_features[member_indices] - center, axis=1)
+            closest_point_idx = member_indices[np.argmin(distances_from_center)]
+            point_item = point_details_list[closest_point_idx]
             
-            candidate_points.append({
-                "lat": pt["lat"],
-                "lng": pt["lng"],
-                "elev": pt["elev"],
-                "slope": pt["slope"],
-                "ksat": pt["ksat"],
-                "hsg": pt["hsg"],
-                "score": int(round(predicted_scores[best_idx])),
-                "index": pt["index"]
+            chosen_candidate_points.append({
+                "lat": point_item["lat"],
+                "lng": point_item["lng"],
+                "elev": point_item["elev"],
+                "slope": point_item["slope"],
+                "ksat": point_item["ksat"],
+                "hsg": point_item["hsg"],
+                "score": int(round(model_scores[closest_point_idx])),
+                "index": point_item["index"]
             })
 
-        candidate_points.sort(key=lambda p: p["index"])
-        return self.format_predictions(candidate_points, "K-Means Cluster")
+        chosen_candidate_points.sort(key=lambda item: item["index"])
+        return self.format_predictions(chosen_candidate_points, "K-Means Cluster")
 
     def predict_randomforest(self, meander_coords: List[List[float]]) -> List[Dict[str, Any]]:
-        """Predicts locations by training a RandomForestRegressor and selecting the top 5 highest scored points"""
-        X, point_data = self.extract_features(meander_coords)
-        if len(X) == 0:
+        """Trains a Random Forest decision tree model to score and select the top 5 river locations."""
+        X_features, point_details_list = self.extract_features(meander_coords)
+        if len(X_features) == 0:
             return []
 
-        # Train regressor to favor low slope and high soil infiltration capacity
-        y_suitability = []
-        for f in X:
-            slope = f[1]
-            elev = f[0]
-            ksat = f[3]
-            score = 90.0 - (slope * 15.0) - (abs(elev - 35.0) * 0.3) + (ksat * 0.8)
-            y_suitability.append(max(40.0, min(99.0, score)))
+        # Create training labels that reward gentle slope and high infiltration rate
+        location_scores = []
+        for feat in X_features:
+            slope_val = feat[1]
+            elev_val = feat[0]
+            ksat_val = feat[3]
+            calculated_val = 90.0 - (slope_val * 15.0) - (abs(elev_val - 35.0) * 0.3) + (ksat_val * 0.8)
+            location_scores.append(max(40.0, min(99.0, calculated_val)))
 
-        self.regressor.fit(X, y_suitability)
-        predicted_scores = self.regressor.predict(X)
+        self.regressor.fit(X_features, location_scores)
+        predicted_scores = self.regressor.predict(X_features)
 
-        # Attach scores to all points and sort by suitability
-        all_points = []
-        for i, pt in enumerate(point_data):
-            all_points.append({
-                "lat": pt["lat"],
-                "lng": pt["lng"],
-                "elev": pt["elev"],
-                "slope": pt["slope"],
-                "ksat": pt["ksat"],
-                "hsg": pt["hsg"],
-                "score": int(round(predicted_scores[i])),
-                "index": pt["index"]
+        # Collect points along with predicted score values
+        all_scored_points = []
+        for index_i, point_item in enumerate(point_details_list):
+            all_scored_points.append({
+                "lat": point_item["lat"],
+                "lng": point_item["lng"],
+                "elev": point_item["elev"],
+                "slope": point_item["slope"],
+                "ksat": point_item["ksat"],
+                "hsg": point_item["hsg"],
+                "score": int(round(predicted_scores[index_i])),
+                "index": point_item["index"]
             })
 
-        # Select top 5 points ensuring spatial distribution (at least 15 points distance)
-        all_points.sort(key=lambda p: p["score"], reverse=True)
-        selected = []
-        min_dist_idx = max(8, len(meander_coords) // 7)
+        # Select top 5 best scoring points while keeping proper spacing between them
+        all_scored_points.sort(key=lambda item: item["score"], reverse=True)
+        selected_points = []
+        minimum_gap = max(8, len(meander_coords) // 7)
 
-        for pt in all_points:
-            if len(selected) >= 5:
+        for candidate in all_scored_points:
+            if len(selected_points) >= 5:
                 break
-            if all(abs(pt["index"] - sel["index"]) >= min_dist_idx for sel in selected):
-                selected.append(pt)
+            if all(abs(candidate["index"] - selected["index"]) >= minimum_gap for selected in selected_points):
+                selected_points.append(candidate)
 
-        selected.sort(key=lambda p: p["index"])
-        return self.format_predictions(selected, "RF Regressor")
+        selected_points.sort(key=lambda item: item["index"])
+        return self.format_predictions(selected_points, "RF Regressor")
 
-    def format_predictions(self, points: List[Dict[str, Any]], prefix: str) -> List[Dict[str, Any]]:
+    def format_predictions(self, points: List[Dict[str, Any]], label_prefix: str) -> List[Dict[str, Any]]:
+        """Formats the output dictionary for each predicted site."""
         from backend.mcda_engine import get_nearest_village
-        districts = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
-        widths = [240, 310, 190, 280, 350]
-        costs = [18.5, 22.0, 14.8, 19.2, 16.0]
+        districts_list = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
+        width_values = [240, 310, 190, 280, 350]
+        cost_values = [18.5, 22.0, 14.8, 19.2, 16.0]
 
-        results = []
-        for i, pt in enumerate(points):
-            lat, lng = pt["lat"], pt["lng"]
-            elev_m = pt["elev"]
-            slope_deg = pt["slope"]
-            score = pt["score"]
-            hsg = pt["hsg"]
-            width_m = widths[i % len(widths)]
-            cost_lakhs = costs[i % len(costs)]
-            district = districts[i % len(districts)]
+        formatted_list = []
+        for index_i, point_item in enumerate(points):
+            lat, lng = point_item["lat"], point_item["lng"]
+            elev_m = point_item["elev"]
+            slope_deg = point_item["slope"]
+            score_val = point_item["score"]
+            hsg_group = point_item["hsg"]
+            width_m = width_values[index_i % len(width_values)]
+            cost_lakhs = cost_values[index_i % len(cost_values)]
+            district_name = districts_list[index_i % len(districts_list)]
             
             farmland_ha = int(round(max(1500.0, min(5000.0, 4200.0 - (elev_m * 25.0) + (slope_deg * 300.0)))))
             farmland_acres = int(round(farmland_ha * HA_TO_ACRES))
             rec_storage_ml = round(max(8.0, min(25.0, (width_m * 0.05) + (elev_m * 0.15))), 1)
             
-            gw_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
-            aquifer_gain_m = gw_impact["groundwater_gain_m"]
+            water_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
+            aquifer_gain_m = water_impact["groundwater_gain_m"]
 
-            near_town = get_nearest_village(lat, lng)
-            town_suffix = f" (Near {near_town})" if near_town else ""
-            predicted_title = f"{prefix} Site {i+1}{town_suffix}"
+            nearest_village_name = get_nearest_village(lat, lng)
+            town_label = f" (Near {nearest_village_name})" if nearest_village_name else ""
+            site_title = f"{label_prefix} Site {index_i+1}{town_label}"
 
-            results.append({
-                "id": f"CD-0{i+1}",
-                "rank": i + 1,
-                "name": predicted_title,
-                "regionName": predicted_title,
-                "district": district,
+            formatted_list.append({
+                "id": f"CD-0{index_i+1}",
+                "rank": index_i + 1,
+                "name": site_title,
+                "regionName": site_title,
+                "district": district_name,
                 "lat": lat,
                 "lng": lng,
                 "cop30_elevation_m": elev_m,
                 "slope_deg": slope_deg,
-                "score": score,
-                "calculatedScore": score,
-                "type": "Sub-surface Dyke + Spillway" if i == 1 else "Inflatable Rubber Weir" if i == 3 else "Salt Barrage Check Dam" if i == 4 else "Concrete Overflow Check Dam",
-                "recHeight": f"{(4.2 - i * 0.3):.1f} m",
+                "score": score_val,
+                "calculatedScore": score_val,
+                "type": "Sub-surface Dyke + Spillway" if index_i == 1 else "Inflatable Rubber Weir" if index_i == 3 else "Salt Barrage Check Dam" if index_i == 4 else "Concrete Overflow Check Dam",
+                "recHeight": f"{(4.2 - index_i * 0.3):.1f} m",
                 "recWidth": f"{width_m} m",
-                "hsg": hsg,
-                "soilInfiltration": f"{pt['ksat']} mm/hr",
+                "hsg": hsg_group,
+                "soilInfiltration": f"{point_item['ksat']} mm/hr",
                 "recStorageML": rec_storage_ml,
-                "rechargeRadiusKm": gw_impact["recharge_radius_km"],
+                "rechargeRadiusKm": water_impact["recharge_radius_km"],
                 "aquiferRiseM": aquifer_gain_m,
                 "costLakhs": cost_lakhs,
-                "annualIrrigationValueLakhs": gw_impact["annual_irrigation_value_lakhs"],
+                "annualIrrigationValueLakhs": water_impact["annual_irrigation_value_lakhs"],
                 "farmlandHa": farmland_ha,
                 "farmlandAcres": farmland_acres,
                 "crossSection": [
@@ -190,6 +189,8 @@ class MLEngine:
                 ]
             })
 
-        return results
+        return formatted_list
 
+# Shared instance for use across the application
 ml_engine = MLEngine()
+
