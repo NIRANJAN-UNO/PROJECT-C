@@ -33,6 +33,54 @@ class RiverNetworkProcessor:
         except Exception as e:
             print(f"[RiverNetworkProcessor] Error loading GeoJSON: {e}")
 
+    # Known non-Kollidam river names to explicitly exclude
+    EXCLUDED_RIVER_NAMES = {
+        'Kaveri', 'Cauvery', 'Pamani River', 'Koraiyar River', 'Uppanar',
+        'Vellar', 'Vellar River', 'Vennar', 'Vennar River', 'Vettar', 'Vettar River',
+        'Arasalar River', 'Pandavaiyar River', 'Kudamuruti', 'Tirumalairajan River',
+        'Marudaiyar River', 'Veeracholan River', 'Vanjiyar River', 'Nandalaar',
+        'Pambar', 'Agniyar', 'Haranadi'
+    }
+
+    # Kollidam main channel corridor bounding box (lng 78.55 to 80.0, lat 10.80 to 11.45)
+    KOLLIDAM_LAT_MIN = 10.80
+    KOLLIDAM_LAT_MAX = 11.45
+    KOLLIDAM_LNG_MIN = 78.55
+    KOLLIDAM_LNG_MAX = 80.00
+
+    def _is_kollidam_segment(self, feature) -> bool:
+        """Returns True if this segment belongs to the Kollidam river channel or its immediate distributaries"""
+        props = feature.get('properties', {})
+        name = props.get('name', '')
+        waterway = props.get('waterway', '')
+
+        # Must be a river (not canal)
+        if waterway != 'river':
+            return False
+
+        # Exclude segments explicitly named as other rivers
+        if name in self.EXCLUDED_RIVER_NAMES:
+            return False
+
+        # Include explicitly named Kollidam segments
+        if name in ('Kollidam', 'Coleroon', 'Koleroon'):
+            return True
+
+        # For unnamed segments: check all coordinates fall within Kollidam corridor
+        coords = feature.get('geometry', {}).get('coordinates', [])
+        if not coords:
+            return False
+
+        for c in coords:
+            lng, lat = c[0], c[1]
+            if not (self.KOLLIDAM_LNG_MIN <= lng <= self.KOLLIDAM_LNG_MAX and
+                    self.KOLLIDAM_LAT_MIN <= lat <= self.KOLLIDAM_LAT_MAX):
+                return False  # At least one coord outside corridor
+
+        return True
+
+
+
     def _compute_intersections(self) -> List[Dict[str, Any]]:
         """
         Detects tributary intersection nodes — points where 3+ segments meet.
@@ -82,13 +130,14 @@ class RiverNetworkProcessor:
         }
 
     def get_geojson(self) -> Dict[str, Any]:
-        """Returns the full GeoJSON FeatureCollection for Leaflet rendering"""
-        return self.geojson or {"type": "FeatureCollection", "features": []}
+        """Returns ONLY Kollidam river segments (named + unnamed in corridor) for Leaflet rendering"""
+        kollidam_feats = [f for f in self.features if self._is_kollidam_segment(f)]
+        print(f"[RiverNetworkProcessor] Serving {len(kollidam_feats)} Kollidam-only segments")
+        return {"type": "FeatureCollection", "features": kollidam_feats}
 
     def get_river_only_geojson(self) -> Dict[str, Any]:
-        """Returns only the 184 main river (non-canal) segments"""
-        river_feats = [f for f in self.features if f.get('properties', {}).get('waterway') == 'river']
-        return {"type": "FeatureCollection", "features": river_feats}
+        """Returns ONLY Kollidam river segments (alias for get_geojson)"""
+        return self.get_geojson()
 
     def get_intersections(self) -> List[Dict[str, Any]]:
         """Returns all tributary intersection nodes sorted by stream convergence priority"""
@@ -100,18 +149,18 @@ class RiverNetworkProcessor:
 
     def get_meander_coords_from_geojson(self) -> List[List[float]]:
         """
-        Extracts ordered [lat, lng] waypoints from main river segments only.
-        Used to feed into ML engine instead of hardcoded coordinates.
+        Extracts ordered [lat, lng] waypoints from Kollidam-only segments.
+        Used to feed into ML engine so all candidate sites land on the actual Kollidam channel.
         """
-        river_feats = [f for f in self.features if f.get('properties', {}).get('waterway') == 'river']
+        kollidam_feats = [f for f in self.features if self._is_kollidam_segment(f)]
         all_coords = []
-        for feat in river_feats:
+        for feat in kollidam_feats:
             geom = feat.get('geometry', {})
             if geom.get('type') == 'LineString':
                 for coord in geom.get('coordinates', []):
                     all_coords.append([coord[1], coord[0]])  # [lat, lng]
 
-        # Deduplicate and sort by longitude (west to east along river)
+        # Deduplicate and sort west to east along the Kollidam channel
         seen = set()
         unique = []
         for pt in all_coords:
@@ -120,7 +169,7 @@ class RiverNetworkProcessor:
                 seen.add(key)
                 unique.append(pt)
 
-        unique.sort(key=lambda c: c[1])  # Sort by longitude, west → east
+        unique.sort(key=lambda c: c[1])  # Sort by longitude, west -> east
         return unique
 
 
