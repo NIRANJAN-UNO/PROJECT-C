@@ -62,7 +62,6 @@ export default function MapView({
 
   const [riverGeoJSON, setRiverGeoJSON] = useState(null);
   const [riverIntersections, setRiverIntersections] = useState([]);
-<<<<<<< HEAD
   const [exclusionZones, setExclusionZones] = useState(null);
   const [showIntersections, setShowIntersections] = useState(true);
   const [showExclusionZones, setShowExclusionZones] = useState(true);
@@ -426,17 +425,4 @@ export default function MapView({
     </div>
   );
 }
-        </div>
-      </div>
 
-      {/* Instruction tooltip */}
-      <div className="absolute bottom-4 right-4 z-[1000] bg-white/90 border border-slate-200 px-2.5 py-1.5 text-[9px] flex items-center gap-1.5 text-slate-700 rounded-lg shadow-sm font-semibold">
-        <Anchor className="w-3.5 h-3.5 text-amber-500" />
-        <span>Click river to test a virtual check dam coordinate.</span>
-      </div>
-
-      {/* Native Leaflet Container */}
-      <div ref={mapContainerRef} className="w-full h-full min-h-[calc(100vh-72px)]" />
-    </div>
-  );
-}
