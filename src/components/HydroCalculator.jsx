@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { CloudRain, Gauge, TrendingUp, DollarSign, Sprout, ArrowUpRight, Calendar, Layers } from 'lucide-react';
+import { CloudRain, Gauge, TrendingUp, DollarSign, Sprout, ArrowUpRight, Calendar, Layers, Info } from 'lucide-react';
 import { calculateSCSCNRunoff, calculateGroundwaterImpact } from '../utils/hydrology';
 
 export default function HydroCalculator({ rainfallMM, onRainfallChange, selectedDam }) {
   const [selectedDate, setSelectedDate] = useState('2021-11-18');
   const [realPrecipInfo, setRealPrecipInfo] = useState(null);
+  const [stormMultiplier, setStormMultiplier] = useState(1); // 1x, 2x, 3x, 5x storm simulation multiplier
 
   // Preset Historical Storm Events in Kollidam Basin
   const PRESET_EVENTS = [
@@ -23,7 +24,8 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
           const data = await res.json();
           if (data.mean_mm !== undefined) {
             setRealPrecipInfo(data);
-            onRainfallChange(Math.round(data.mean_mm));
+            // Apply multiplier to real mean rainfall
+            onRainfallChange(Math.round(data.mean_mm * stormMultiplier));
           }
         }
       } catch (err) {
@@ -31,15 +33,22 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
       }
     }
     fetchRealPrecip();
-  }, [selectedDate]);
+  }, [selectedDate, stormMultiplier]);
 
   const cn = selectedDam ? (selectedDam.hsg.startsWith('B') ? 78 : selectedDam.hsg.startsWith('C') ? 83 : 88) : 80;
+  
+  // Calculate runoff using multiplied rainfall
   const hydro = calculateSCSCNRunoff(rainfallMM, cn, 450);
   const gw = calculateGroundwaterImpact(hydro.volumeML, 6.0);
   
   const estCostLakhs = selectedDam ? selectedDam.costLakhs : 18.0;
   const annualIrrigationValueLakhs = Math.round((hydro.volumeML * 2.8) / 10);
-  const paybackMonths = Number(((estCostLakhs / (annualIrrigationValueLakhs || 1)) * 12).toFixed(1));
+  const paybackMonths = hydro.volumeML > 0 
+    ? Number(((estCostLakhs / (annualIrrigationValueLakhs || 1)) * 12).toFixed(1))
+    : 120.0; // Max out payback period if 0 runoff
+
+  const Ia = Number((0.2 * ((25400 / cn) - 254)).toFixed(1));
+  const isBelowThreshold = rainfallMM <= Ia;
 
   return (
     <div className="w-full glass-panel p-5 space-y-4">
@@ -60,7 +69,7 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
             Query Historical Rainfall GeoTIFF Date:
           </span>
           <span className="text-cyan-400 font-mono text-sm px-2.5 py-0.5 bg-cyan-500/10 border border-cyan-400/30 rounded-md">
-            {rainfallMM} mm Real Precip
+            {rainfallMM} mm Precip {stormMultiplier > 1 ? `(${stormMultiplier}x Sim)` : ''}
           </span>
         </div>
 
@@ -69,7 +78,9 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
           {PRESET_EVENTS.map(evt => (
             <button
               key={evt.date}
-              onClick={() => setSelectedDate(evt.date)}
+              onClick={() => {
+                setSelectedDate(evt.date);
+              }}
               className={`px-2.5 py-1.5 rounded-lg border text-left font-semibold transition ${
                 selectedDate === evt.date
                   ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
@@ -79,6 +90,23 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
               {evt.label}
             </button>
           ))}
+        </div>
+
+        {/* Storm Intensity Multiplier (Simulates Climate Change / Severe storms) */}
+        <div className="space-y-1.5 pt-1.5 border-t border-slate-800/50">
+          <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+            <span>Simulate Climate Storm Multiplier:</span>
+            <span className="text-amber-400 font-mono">{stormMultiplier}x Scale</span>
+          </div>
+          <input 
+            type="range"
+            min="1"
+            max="5"
+            step="1"
+            value={stormMultiplier}
+            onChange={(e) => setStormMultiplier(parseInt(e.target.value))}
+            className="w-full h-1 bg-slate-850 rounded-lg appearance-none cursor-pointer accent-amber-400"
+          />
         </div>
 
         {/* Direct Date Picker Input */}
@@ -102,7 +130,22 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
         )}
       </div>
 
-      {/* Dynamic Telemetry Metrics Grid (Showing Acres & Hectares) */}
+      {/* Hydrological Infiltration Warning/Explanation Banner */}
+      {isBelowThreshold && (
+        <div className="p-3 bg-amber-950/20 border border-amber-900/40 rounded-xl flex gap-2.5 text-xs text-amber-300">
+          <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-bold">Initial Abstraction Threshold Active</div>
+            <p className="text-[11px] text-slate-300 leading-normal">
+              Rainfall intensity ({rainfallMM} mm) is below the soil's Initial Abstraction threshold (Ia = {Ia} mm). 
+              The dry basin soil absorbs the water entirely, generating 0 surface runoff. 
+              <strong> Drag the "Storm Multiplier" slider above to scale the storm and generate runoff!</strong>
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Dynamic Telemetry Metrics Grid */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="p-3.5 bg-slate-900/80 rounded-xl border border-blue-900/40">
           <div className="flex items-center justify-between text-slate-400 text-[10px] uppercase font-semibold mb-1">
@@ -143,7 +186,7 @@ export default function HydroCalculator({ rainfallMM, onRainfallChange, selected
             <DollarSign className="w-3.5 h-3.5 text-indigo-400" />
           </div>
           <div className="text-lg font-extrabold text-indigo-400 font-mono">
-            {paybackMonths} <span className="text-xs text-slate-400">Months</span>
+            {hydro.volumeML > 0 ? `${paybackMonths} M` : 'N/A'}
           </div>
           <span className="text-[10px] text-slate-400">Annual Value: ₹{annualIrrigationValueLakhs}L</span>
         </div>

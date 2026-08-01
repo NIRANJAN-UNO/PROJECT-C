@@ -84,7 +84,7 @@ class MLEngine:
             
             # Live DEM Sampling from output_hh.tif!
             elev_m = dem_processor.get_elevation_at_point(lat, lng)
-            slope_deg = dem_processor.calculate_slope_degrees(lat, lng)
+            slope_deg = dem_processor.calculate_slope_and_aspect(lat, lng)[0]
             
             score = int(min(99, max(50, round((95 - (i * 3)) * model_bias))))
             farmland_ha = int(round(info["baseHa"] * model_bias))

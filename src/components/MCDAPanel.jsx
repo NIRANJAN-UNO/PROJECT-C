@@ -20,19 +20,19 @@ export default function MCDAPanel({
   ];
 
   return (
-    <div className="w-full glass-panel p-5 space-y-5">
+    <div className="w-full h-[540px] overflow-y-auto scrollbar-thin glass-panel p-5 space-y-5 pr-3">
       {/* Panel Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-blue-900/50 pb-3 gap-2">
         <div className="flex items-center gap-2 text-cyan-400">
           <Sliders className="w-5 h-5" />
           <h2 className="text-base font-bold tracking-wide">Multi-Criteria AI Decision Engine</h2>
         </div>
-        <span className="text-[11px] text-slate-400 font-mono">COP30 DEM Grounded Spatial Weighting</span>
+        <span className="text-[11px] text-slate-400 font-mono">COP30 DEM Spatial Weighting</span>
       </div>
 
       {/* Decision Profile Preset Pills */}
       {activeModel && onSelectModel && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+        <div className="grid grid-cols-2 gap-2">
           {Object.entries(MCDA_PROFILES).map(([key, profile]) => {
             const isSelected = activeModel === key;
             return (
@@ -63,7 +63,7 @@ export default function MCDAPanel({
       )}
 
       {/* AHP Weight Sliders Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-slate-900/60 p-4 rounded-xl border border-blue-900/40">
+      <div className="grid grid-cols-1 gap-4 bg-slate-900/60 p-4 rounded-xl border border-blue-900/40">
         {sliderConfig.map(s => {
           const val = weights[s.key] || 0;
           return (
@@ -85,7 +85,7 @@ export default function MCDAPanel({
                 className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-400"
               />
 
-              <div className="text-[10px] text-slate-400 line-clamp-1">{s.hint}</div>
+              <div className="text-[10px] text-slate-400">{s.hint}</div>
             </div>
           );
         })}
@@ -93,12 +93,12 @@ export default function MCDAPanel({
 
       {/* Ranked Candidate Check-Dam Location Cards */}
       <div className="space-y-2 pt-1">
-        <div className="flex items-center justify-between text-xs font-bold text-slate-300">
+        <div className="flex flex-col gap-1 text-xs font-bold text-slate-300">
           <span>RANKED CANDIDATE CHECK-DAM LOCATIONS ({dams.length})</span>
           <span className="text-[10px] text-slate-400 font-mono">Click card to inspect on map & profile graph</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 gap-3">
           {dams.map(dam => {
             const isSelected = selectedDam && selectedDam.id === dam.id;
             const liveScore = calculateMCDAScore(dam, weights);

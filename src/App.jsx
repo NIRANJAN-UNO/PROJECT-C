@@ -222,7 +222,7 @@ export default function App() {
       ) : (
         /* AI Network & Custom Rainfall Simulator View */
         <div className="space-y-6">
-          {/* Upper Section: Map & Hydrological Calculator */}
+          {/* Upper Section: Map & MCDA Decision Sidebar */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
               <MapView 
@@ -236,27 +236,33 @@ export default function App() {
               />
             </div>
 
-            <div className="space-y-6">
+            <div>
+              <MCDAPanel 
+                dams={scannedDams}
+                weights={weights}
+                onWeightChange={handleWeightChange}
+                selectedDam={selectedDam}
+                onSelectDam={setSelectedDam}
+                activeModel={activeModel}
+                onSelectModel={setActiveModel}
+              />
+            </div>
+          </div>
+
+          {/* Lower Section: Hydrological Calculator & Elevation Profile Chart */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
               <HydroCalculator 
                 rainfallMM={rainfallMM}
                 onRainfallChange={setRainfallMM}
                 selectedDam={selectedDam}
               />
+            </div>
 
+            <div>
               <ElevationChart selectedDam={selectedDam} />
             </div>
           </div>
-
-          {/* Unified Multi-Criteria AI Decision Engine Panel */}
-          <MCDAPanel 
-            dams={scannedDams}
-            weights={weights}
-            onWeightChange={handleWeightChange}
-            selectedDam={selectedDam}
-            onSelectDam={setSelectedDam}
-            activeModel={activeModel}
-            onSelectModel={setActiveModel}
-          />
         </div>
       )}
 
