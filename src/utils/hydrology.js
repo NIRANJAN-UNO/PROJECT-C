@@ -121,14 +121,13 @@ export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-stand
   };
 
   const indices = modelIndexMap[activeModel] || modelIndexMap['mcda-standard'];
-  const profileInfo = MCDA_PROFILES[activeModel] || MCDA_PROFILES['mcda-standard'];
 
   const baseLandmarks = [
-    { district: "Tiruchirappalli", hsg: "B (Sandy Loam)", recWidth: "240 m", costLakhs: 18.5, baseHa: 3400 },
-    { district: "Thanjavur / Ariyalur", hsg: "B (Alluvial Loam)", recWidth: "310 m", costLakhs: 22.0, baseHa: 4800 },
-    { district: "Ariyalur", hsg: "C (Clay Loam)", recWidth: "190 m", costLakhs: 14.8, baseHa: 2900 },
-    { district: "Mayiladuthurai", hsg: "C (Clayey Alluvium)", recWidth: "280 m", costLakhs: 19.2, baseHa: 3100 },
-    { district: "Mayiladuthurai", hsg: "D (Heavy Coastal Clay)", recWidth: "350 m", costLakhs: 16.0, baseHa: 2100 }
+    { name: "Upper Mukkombu Catchment", district: "Tiruchirappalli", hsg: "B (Sandy Loam)", recWidth: "240 m", costLakhs: 18.5, baseHa: 3400, storageML: 14.2, gwGainM: 3.20 },
+    { name: "Kallanai Anicut East Sector", district: "Thanjavur", hsg: "B (Alluvial Loam)", recWidth: "310 m", costLakhs: 22.0, baseHa: 4800, storageML: 18.5, gwGainM: 2.85 },
+    { name: "Thirumanur Confluence Zone", district: "Ariyalur", hsg: "C (Clay Loam)", recWidth: "190 m", costLakhs: 14.8, baseHa: 2900, storageML: 11.8, gwGainM: 2.40 },
+    { name: "Lower Anaicut Delta Reach", district: "Mayiladuthurai", hsg: "C (Clayey Alluvium)", recWidth: "280 m", costLakhs: 19.2, baseHa: 3100, storageML: 12.4, gwGainM: 2.10 },
+    { name: "Sirkazhi Coastal Buffer", district: "Mayiladuthurai Delta", hsg: "D (Heavy Coastal Clay)", recWidth: "350 m", costLakhs: 16.0, baseHa: 2100, storageML: 8.6, gwGainM: 1.60 }
   ];
 
   return indices.map((idx, i) => {
@@ -147,7 +146,8 @@ export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-stand
     return {
       id: `CD-0${i+1}`,
       rank: i + 1,
-      name: `Kollidam Reach (${lat.toFixed(3)}°N, ${lng.toFixed(3)}°E) | DEM: ${elev}m`,
+      name: `${info.name} (${lat.toFixed(3)}°N, ${lng.toFixed(3)}°E)`,
+      regionName: info.name,
       district: info.district,
       lat: lat,
       lng: lng,
@@ -162,9 +162,9 @@ export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-stand
       slopeDeg: slope,
       streamOrder: 6,
       soilInfiltration: i < 2 ? "7.2 mm/hr" : i < 4 ? "4.5 mm/hr" : "2.1 mm/hr",
-      recStorageML: Number((14.2 + (i % 2) * 4.3).toFixed(1)),
+      recStorageML: info.storageML,
       rechargeRadiusKm: Number((4.2 - i * 0.4).toFixed(1)),
-      aquiferRiseM: Number((3.2 - i * 0.35).toFixed(2)),
+      aquiferRiseM: info.gwGainM,
       costLakhs: info.costLakhs,
       annualIrrigationValueLakhs: Math.round(info.costLakhs * 2.3),
       farmlandHa: farmlandHa,

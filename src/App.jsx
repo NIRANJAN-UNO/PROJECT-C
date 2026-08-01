@@ -5,7 +5,6 @@ import MCDAPanel from './components/MCDAPanel';
 import HydroCalculator from './components/HydroCalculator';
 import ElevationChart from './components/ElevationChart';
 import CaseStudySimulator from './components/CaseStudySimulator';
-import MLBenchmarkPanel from './components/MLBenchmarkPanel';
 import GEEAnalyticsModal from './components/GEEAnalyticsModal';
 
 import { HIGH_RES_RIVER_MEANDER } from './data/kollidamData';
@@ -248,19 +247,15 @@ export default function App() {
             </div>
           </div>
 
-          {/* Middle Section: ML Benchmark Selector Panel */}
-          <MLBenchmarkPanel 
-            activeModel={activeModel}
-            onSelectModel={setActiveModel}
-          />
-
-          {/* Lower Section: MCDA AI Ranking Engine */}
+          {/* Unified Multi-Criteria AI Decision Engine Panel */}
           <MCDAPanel 
             dams={scannedDams}
             weights={weights}
             onWeightChange={handleWeightChange}
             selectedDam={selectedDam}
             onSelectDam={setSelectedDam}
+            activeModel={activeModel}
+            onSelectModel={setActiveModel}
           />
         </div>
       )}
