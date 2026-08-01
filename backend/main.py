@@ -100,27 +100,37 @@ class ScanRequest(BaseModel):
 
 @app.post("/api/hydrology/scan")
 def scan_hydrology(scan_params: ScanRequest):
-    """Scans river coordinates and predicts optimal candidate dam sites."""
+    """Scans the REAL OSM Kollidam river network coordinates and predicts optimal candidate dam sites."""
+    
+    # Always use real OSM river GeoJSON coordinates — this ensures all candidate sites
+    # are placed directly ON the actual Kollidam river channel, not on estimated meanders
+    real_river_coords = river_processor.get_meander_coords_from_geojson()
+    
+    # Fallback to client-provided coords only if river GeoJSON is unavailable
+    coords_to_use = real_river_coords if len(real_river_coords) > 10 else scan_params.meander_coords
+
     if scan_params.profile_key == 'ml-kmeans':
-        predicted_sites = ml_engine.predict_kmeans(scan_params.meander_coords)
-        engine_label = "Python scikit-learn (K-Means Clustering)"
+        predicted_sites = ml_engine.predict_kmeans(coords_to_use)
+        engine_label = "Python scikit-learn (K-Means Clustering) on OSM River Network"
     elif scan_params.profile_key == 'ml-randomforest':
-        predicted_sites = ml_engine.predict_randomforest(scan_params.meander_coords)
-        engine_label = "Python scikit-learn (RandomForestRegressor)"
+        predicted_sites = ml_engine.predict_randomforest(coords_to_use)
+        engine_label = "Python scikit-learn (RandomForestRegressor) on OSM River Network"
     else:
         predicted_sites = mcda_engine.generate_candidate_predictions(
             profile_key=scan_params.profile_key,
             user_weights=scan_params.weights,
-            meander_coords=scan_params.meander_coords
+            meander_coords=coords_to_use
         )
-        engine_label = "Python MCDA Scoring Engine"
+        engine_label = "Python MCDA Scoring Engine on OSM River Network"
 
     return {
         "status": "success",
         "active_profile": scan_params.profile_key,
         "backend_engine": f"{engine_label} + Copernicus 30m DEM + Soil Raster + Real Rainfall TIFs",
+        "river_coords_used": len(coords_to_use),
         "predictions": predicted_sites
     }
+
 
 @app.post("/api/ml/extract-features")
 def extract_features(lat: float = Query(...), lng: float = Query(...)):
