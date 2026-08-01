@@ -3,6 +3,7 @@ import math
 import numpy as np
 import rasterio
 from typing import Dict, Any, List, Tuple
+
 DEM_FILE_PATH = "E:/output_hh.tif"
 
 WATER_BODY_EXCLUSION_ZONES = [
@@ -43,7 +44,7 @@ class DEMProcessor:
         self.filepath = filepath
         self.dataset = None
         self.array = None
-        self.cell_size_m = 30.0 
+        self.cell_size_m = 30.0
         self.load_raster()
 
     def load_raster(self) -> bool:
@@ -63,7 +64,7 @@ class DEMProcessor:
     def get_info(self) -> Dict[str, Any]:
         if self.dataset is None:
             return {"error": "DEM raster not loaded"}
-        
+
         map_bounds = self.dataset.bounds
         valid_heights = self.array[~np.isnan(self.array) & (self.array > -9000)]
 
@@ -89,7 +90,7 @@ class DEMProcessor:
     def get_elevation_at_point(self, lat: float, lng: float) -> float:
         if self.dataset is None:
             return 45.0
-        
+
         try:
             row_idx, col_idx = self.dataset.index(lng, lat)
             if 0 <= row_idx < self.dataset.height and 0 <= col_idx < self.dataset.width:
@@ -100,29 +101,28 @@ class DEMProcessor:
             return 45.0
 
     def calculate_slope_and_aspect(self, lat: float, lng: float) -> Tuple[float, float]:
-
         if self.dataset is None:
             return (0.8, 180.0)
-        
+
         try:
             row_idx, col_idx = self.dataset.index(lng, lat)
             if 1 <= row_idx < self.dataset.height - 1 and 1 <= col_idx < self.dataset.width - 1:
                 neighborhood_grid = self.array[row_idx-1:row_idx+2, col_idx-1:col_idx+2]
-                
-                change_in_x = ((neighborhood_grid[0, 2] + 2*neighborhood_grid[1, 2] + neighborhood_grid[2, 2]) - 
+
+                change_in_x = ((neighborhood_grid[0, 2] + 2*neighborhood_grid[1, 2] + neighborhood_grid[2, 2]) -
                                (neighborhood_grid[0, 0] + 2*neighborhood_grid[1, 0] + neighborhood_grid[2, 0])) / (8 * self.cell_size_m)
-                
-                change_in_y = ((neighborhood_grid[2, 0] + 2*neighborhood_grid[2, 1] + neighborhood_grid[2, 2]) - 
+
+                change_in_y = ((neighborhood_grid[2, 0] + 2*neighborhood_grid[2, 1] + neighborhood_grid[2, 2]) -
                                (neighborhood_grid[0, 0] + 2*neighborhood_grid[0, 1] + neighborhood_grid[0, 2])) / (8 * self.cell_size_m)
-                
+
                 slope_radians = math.atan(math.sqrt(change_in_x**2 + change_in_y**2))
                 slope_degrees = round(math.degrees(slope_radians), 2)
-                
+
                 aspect_radians = math.atan2(change_in_y, -change_in_x)
                 aspect_degrees = math.degrees(aspect_radians)
                 if aspect_degrees < 0:
                     aspect_degrees += 360.0
-                
+
                 return (slope_degrees, round(aspect_degrees, 1))
             return (0.8, 180.0)
         except Exception:
@@ -136,8 +136,8 @@ class DEMProcessor:
         return None
 
     def extract_dynamic_candidate_sites(
-        self, 
-        meander_coords: List[List[float]], 
+        self,
+        meander_coords: List[List[float]],
         num_sites: int = 5
     ) -> List[Dict[str, Any]]:
         if not meander_coords:
@@ -148,7 +148,6 @@ class DEMProcessor:
         for point_idx, point_coords in enumerate(meander_coords):
             lat, lng = point_coords[0], point_coords[1]
 
-            # Skip points inside known water body exclusion zones
             exclusion = self.is_inside_exclusion_zone(lat, lng)
             if exclusion:
                 excluded_count += 1
@@ -156,7 +155,7 @@ class DEMProcessor:
 
             height_m = self.get_elevation_at_point(lat, lng)
             slope_deg, aspect_deg = self.calculate_slope_and_aspect(lat, lng)
-            
+
             collected_points.append({
                 "index": point_idx,
                 "lat": lat,
@@ -170,10 +169,10 @@ class DEMProcessor:
             print(f"[DEMProcessor] Excluded {excluded_count} coords inside water body zones")
 
         collected_points.sort(key=lambda item: (item["slope"], item["elev"]))
-        
+
         selected_locations = []
         minimum_spacing = max(5, len(meander_coords) // (num_sites + 1))
-        
+
         for location in collected_points:
             if len(selected_locations) >= num_sites:
                 break
@@ -182,5 +181,5 @@ class DEMProcessor:
 
         selected_locations.sort(key=lambda item: item["index"])
         return selected_locations
-dem_processor = DEMProcessor()
 
+dem_processor = DEMProcessor()

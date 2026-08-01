@@ -6,7 +6,6 @@ from backend.soil_processor import soil_processor
 from backend.lclu_processor import lclu_processor
 from backend.hydrology_calculator import HA_TO_ACRES, hydrology_calc
 
-
 MCDA_PROFILES = {
     'mcda-standard': {
         "name": "Standard Hydro-MCDA Engine",
@@ -57,13 +56,13 @@ KNOWN_TOWNS = [
 def get_nearest_village(lat: float, lng: float) -> str:
     shortest_distance = float('inf')
     closest_town = None
-    
+
     for town_info in KNOWN_TOWNS:
         distance_val = math.sqrt((town_info["lat"] - lat) ** 2 + (town_info["lng"] - lng) ** 2)
         if distance_val < shortest_distance:
             shortest_distance = distance_val
             closest_town = town_info
-            
+
     if closest_town and shortest_distance < 0.15:
         return closest_town["name"]
     return ""
@@ -73,12 +72,12 @@ class MCDAEngine:
         return MCDA_PROFILES
 
     def calculate_mcda_score(
-        self, 
-        elev_m: float, 
-        slope_deg: float, 
-        hsg: str, 
-        farmland_ha: float, 
-        width_m: float, 
+        self,
+        elev_m: float,
+        slope_deg: float,
+        hsg: str,
+        farmland_ha: float,
+        width_m: float,
         weights: Dict[str, float]
     ) -> int:
         total_weight_sum = sum(weights.values()) or 100.0
@@ -93,27 +92,20 @@ class MCDAEngine:
         flow_score = 85.0
         soil_score = 95.0 if hsg.startswith("A") or hsg.startswith("B") else 75.0 if hsg.startswith("C") else 55.0
         farm_score = min(100.0, (farmland_ha / 300.0) * 100.0)
-
-
         width_score = min(100.0, max(20.0, (350.0 - width_m) / 2.0))
 
         final_score = (slope_score * slope_weight) + (flow_score * flow_weight) + (soil_score * soil_weight) + (farm_score * farm_weight) + (width_score * width_weight)
         return int(min(99, max(40, round(final_score))))
 
     def calculate_xai_attributions(
-        self, 
-        elev_m: float, 
-        slope_deg: float, 
-        hsg: str, 
-        farmland_ha: float, 
-        width_m: float, 
+        self,
+        elev_m: float,
+        slope_deg: float,
+        hsg: str,
+        farmland_ha: float,
+        width_m: float,
         weights: Dict[str, float]
     ) -> Dict[str, float]:
-        """
-        Calculates local feature contribution values (SHAP style explainability).
-        Positive means the feature score is better than the average river channel.
-        Negative means the feature score pulls the site score down compared to average.
-        """
         total_weight_sum = sum(weights.values()) or 100.0
         w_slope = weights.get("slope", 30) / total_weight_sum
         w_flow = weights.get("flow", 25) / total_weight_sum
@@ -121,23 +113,18 @@ class MCDAEngine:
         w_farm = weights.get("farmland", 15) / total_weight_sum
         w_width = weights.get("width", 10) / total_weight_sum
 
-        # Site score components (calibrated with lower baseline ~75 Ha / 185 Acres)
         s_slope = max(0.0, 100.0 - (slope_deg * 25.0))
         s_flow = 85.0
         s_soil = 95.0 if hsg.startswith("A") or hsg.startswith("B") else 75.0 if hsg.startswith("C") else 55.0
         s_farm = min(100.0, (farmland_ha / 300.0) * 100.0)
         s_width = min(100.0, max(20.0, (350.0 - width_m) / 2.0))
 
-        # Baseline average sub-scores for Kollidam River basin
         b_slope = 77.5
         b_flow = 85.0
         b_soil = 75.0
-        b_farm = 25.0  # Lower baseline ~75 Ha (185 Acres)
+        b_farm = 25.0
         b_width = 45.0
 
-
-
-        # Relative contributions (normalized to out of 100 final score difference)
         c_slope = w_slope * (s_slope - b_slope)
         c_flow = w_flow * (s_flow - b_flow)
         c_soil = w_soil * (s_soil - b_soil)
@@ -153,21 +140,17 @@ class MCDAEngine:
         }
 
     def generate_candidate_predictions(
-        self, 
-        profile_key: str = 'mcda-standard', 
+        self,
+        profile_key: str = 'mcda-standard',
         user_weights: Dict[str, float] = None,
         meander_coords: List[List[float]] = None
     ) -> List[Dict[str, Any]]:
-        """
-        Scans ground elevation and soil maps to select and score the best candidate locations.
-        """
         if profile_key not in MCDA_PROFILES:
             profile_key = 'mcda-standard'
-        
+
         profile_info = MCDA_PROFILES[profile_key]
         active_weights = user_weights or profile_info["default_weights"]
 
-        # Get top candidate points based on terrain ground slope and elevation
         found_candidate_locations = dem_processor.extract_dynamic_candidate_sites(meander_coords, num_sites=5)
 
         districts_list = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
@@ -178,30 +161,22 @@ class MCDAEngine:
             elev_m = location["elev"]
             slope_deg = location["slope"]
 
-            # Read soil type from soil processor
             soil_info = soil_processor.get_soil_at_point(lat, lng)
             hsg_group = soil_info["hsg"]
 
-            # Dynamically compute channel width from slope & elevation
-            # Flatter + lower terrain = wider channel
             width_m = round(max(120.0, min(400.0, 320.0 - (slope_deg * 40.0) + (max(0, 20.0 - elev_m) * 2.0))), 0)
             cost_lakhs = round(max(10.0, min(28.0, width_m * 0.07)), 1)
             district_name = districts_list[index_num % len(districts_list)]
-            
-            # Query 10m Satellite LCLU Raster for exact Cropland Hectares & Land Cover Class
+
             lclu_class_info = lclu_processor.get_lclu_at_point(lat, lng)
             cropland_stats = lclu_processor.get_cropland_area_in_radius(lat, lng, radius_km=1.5)
             farmland_ha = cropland_stats["cropland_ha"]
             farmland_acres = cropland_stats["cropland_acres"]
 
-            
-            # Compute suitability score
             location_score = self.calculate_mcda_score(elev_m, slope_deg, hsg_group, farmland_ha, width_m, active_weights)
-            
-            # Compute XAI attributions
+
             attributions = self.calculate_xai_attributions(elev_m, slope_deg, hsg_group, farmland_ha, width_m, active_weights)
 
-            # Dynamically compute storage from terrain: flatter slope & wider channel = more water stored
             rec_storage_ml = round(max(8.0, min(30.0,
                 (width_m * 0.055)
                 - (slope_deg * 3.0)
@@ -209,7 +184,6 @@ class MCDAEngine:
             )), 1)
             water_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
 
-            # Find name of nearest town
             nearest_town_name = get_nearest_village(lat, lng)
             town_label = f" (Near {nearest_town_name})" if nearest_town_name else ""
             location_title = f"Candidate Site {index_num+1}{town_label}"
@@ -228,7 +202,6 @@ class MCDAEngine:
                 "calculatedScore": location_score,
                 "attributions": attributions,
                 "type": "Sub-surface Dyke + Spillway" if index_num == 1 else "Inflatable Rubber Weir" if index_num == 3 else "Salt Barrage Check Dam" if index_num == 4 else "Concrete Overflow Check Dam",
-
                 "recHeight": f"{(4.2 - index_num * 0.3):.1f} m",
                 "recWidth": f"{width_m} m",
                 "hsg": hsg_group,
@@ -248,6 +221,4 @@ class MCDAEngine:
 
         return output_results
 
-# Shared instance for use across the application
 mcda_engine = MCDAEngine()
-
