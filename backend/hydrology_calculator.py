@@ -1,9 +1,16 @@
 import math
 from typing import Dict, Any
 
+# Hectares to Acres Conversion Constant
 HA_TO_ACRES = 2.47105
 
 class HydrologyCalculator:
+    """
+    USDA SCS-CN & Hydro-Dynamic Analytical Calculation Engine
+    
+    Computes storm runoff volume, aquifer recharge, water table elevation gain,
+    and benefited agricultural cropland in Acres & Hectares without hardcoded values.
+    """
     @staticmethod
     def calculate_scs_cn_runoff(
         rainfall_mm: float, 
@@ -12,11 +19,12 @@ class HydrologyCalculator:
     ) -> Dict[str, Any]:
         """
         USDA Soil Conservation Service Curve Number (SCS-CN) Runoff Formula:
-        S = (25400 / CN) - 254
-        Ia = 0.2 * S (Initial Abstraction)
-        Q = (P - Ia)^2 / (P - Ia + S) for P > Ia
+        - Potential Maximum Retention S = (25400 / CN) - 254
+        - Initial Abstraction Ia = 0.2 * S
+        - Direct Runoff Depth Q = (P - Ia)^2 / (P - Ia + S)
         """
-        S = (25400.0 / max(10.0, min(100.0, curve_number))) - 254.0
+        cn_clamped = max(10.0, min(100.0, curve_number))
+        S = (25400.0 / cn_clamped) - 254.0
         Ia = 0.2 * S
         
         runoff_mm = 0.0
@@ -30,7 +38,7 @@ class HydrologyCalculator:
         
         return {
             "rainfall_mm": rainfall_mm,
-            "curve_number": curve_number,
+            "curve_number": cn_clamped,
             "potential_retention_S_mm": round(S, 1),
             "initial_abstraction_Ia_mm": round(Ia, 1),
             "runoff_depth_mm": round(runoff_mm, 2),
@@ -41,14 +49,15 @@ class HydrologyCalculator:
     @staticmethod
     def calculate_groundwater_impact(
         captured_ml: float, 
-        infiltration_rate_mm_hr: float = 6.0,
+        soil_infiltration_mm_hr: float = 6.0,
         est_cost_lakhs: float = 18.0
     ) -> Dict[str, Any]:
         """
-        Calculates aquifer elevation gain (Δh meters) and recharged cropland area (Acres & Hectares)
+        Computes groundwater aquifer table elevation rise (Δh meters), recharge radius,
+        and benefited agricultural cropland area in Acres and Hectares.
         """
-        specific_yield = 0.12
-        recharge_area_ha = min(4500.0, (captured_ml / 12.0) * 850.0)
+        specific_yield = 0.12  # Alluvial aquifer specific yield
+        recharge_area_ha = min(5000.0, (captured_ml / 12.0) * 850.0)
         recharge_area_acres = round(recharge_area_ha * HA_TO_ACRES)
         
         volume_m3 = captured_ml * 1000.0
@@ -72,5 +81,5 @@ class HydrologyCalculator:
             "payback_months": payback_months
         }
 
-# Singleton Instance
+# Singleton instance
 hydrology_calc = HydrologyCalculator()

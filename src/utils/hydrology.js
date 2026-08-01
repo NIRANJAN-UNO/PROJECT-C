@@ -1,17 +1,49 @@
-// Hydrological & Spatial MCDA Math Utilities
+// Hydrological & MCDA Analytical Benchmark Engine
+
+// Hectares to Acres Conversion Constant
+export const HA_TO_ACRES = 2.47105;
+
+// Configurable Hydro-MCDA Decision Profiles
+export const MCDA_PROFILES = {
+  'mcda-standard': {
+    name: "Standard Hydro-MCDA Engine",
+    type: "Multi-Criteria Decision Analysis",
+    score: "DEM-Weighted",
+    badge: "Balanced MCDA",
+    color: "cyan",
+    details: "Multi-criteria spatial scoring balancing slope, elevation, soil permeability, and farmland proximity."
+  },
+  'mcda-slope': {
+    name: "Slope-Optimized Selection",
+    type: "Topographic Gradient Focus",
+    score: "Slope Driven",
+    badge: "Slope Priority (<2°)",
+    color: "emerald",
+    details: "Prioritizes flat terrain channels (slope < 2.0°) to maximize storage pool backwater area."
+  },
+  'mcda-soil': {
+    name: "Deep Alluvial Recharge Focus",
+    type: "Infiltration Capacity Focus",
+    score: "Permeability Driven",
+    badge: "Soil Infiltration Focus",
+    color: "amber",
+    details: "Prioritizes high-permeability sandy alluvial channels (HSG B) for rapid deep aquifer recharge."
+  },
+  'ml-readiness': {
+    name: "Future ML Readiness Interface",
+    type: "Extensible Machine Learning Feature Vector Pipeline",
+    score: "Feature Extraction",
+    badge: "ML Ready Pipeline",
+    color: "blue",
+    details: "Extracts 5-dimensional feature matrices (Elevation, Slope, Aspect, Soil, Distance) for future model training."
+  }
+};
 
 /**
  * Calculates SCS-CN Runoff Volume
- * @param {number} rainfallMM Storm rainfall in mm (e.g. 50 - 300mm)
- * @param {number} curveNumber SCS Curve Number (CN: 60 - 95 based on soil & land use)
- * @param {number} catchmentAreaSqKm Catchment area in km²
- * @returns {object} { runoffMM, volumeML, volumeTMC }
  */
 export function calculateSCSCNRunoff(rainfallMM, curveNumber = 80, catchmentAreaSqKm = 450) {
-  // Potential maximum retention S in mm
   const S = (25400 / curveNumber) - 254;
-  
-  // Initial abstraction Ia (typically 0.2 * S)
   const Ia = 0.2 * S;
   
   let runoffMM = 0;
@@ -21,11 +53,7 @@ export function calculateSCSCNRunoff(rainfallMM, curveNumber = 80, catchmentArea
     runoffMM = num / den;
   }
   
-  // Convert runoff depth (mm) over catchment area (km²) to Volume
-  // 1 mm depth over 1 km² = 1,000 m³ = 1,000,000 Liters (1 Million Liters)
   const volumeML = runoffMM * catchmentAreaSqKm;
-  
-  // Convert Million Liters to TMC (1 TMC = 28,316.8 Million Liters)
   const volumeTMC = volumeML / 28316.8;
   
   return {
@@ -37,24 +65,40 @@ export function calculateSCSCNRunoff(rainfallMM, curveNumber = 80, catchmentArea
 }
 
 /**
- * Recalculate MCDA Score for candidate check-dam locations
- * @param {object} dam Check dam object
- * @param {object} weights User weight settings { slope, flow, soil, farmland, width }
- * @returns {number} Score from 0 to 100
+ * Computes predicted groundwater table rise and recharge area (Hectares & Acres)
+ */
+export function calculateGroundwaterImpact(capturedML, infiltrationRateMmHr = 6.0) {
+  const specificYield = 0.12;
+  const rechargeAreaHa = Math.min(4500, (capturedML / 12) * 850);
+  const rechargeAreaAcres = Math.round(rechargeAreaHa * HA_TO_ACRES);
+  
+  const volumeM3 = capturedML * 1000;
+  const areaM2 = rechargeAreaHa * 10000;
+  const deltaHMeters = volumeM3 / (areaM2 * specificYield);
+  const radiusKm = Math.sqrt(areaM2 / Math.PI) / 1000;
+  
+  return {
+    rechargeAreaHa: Math.round(rechargeAreaHa),
+    rechargeAreaAcres: rechargeAreaAcres,
+    deltaHMeters: Number(Math.min(5.5, deltaHMeters).toFixed(2)),
+    radiusKm: Number(radiusKm.toFixed(2))
+  };
+}
+
+/**
+ * Recalculates MCDA Score for candidate check-dam locations
  */
 export function calculateMCDAScore(dam, weights) {
   const totalWeight = weights.slope + weights.flow + weights.soil + weights.farmland + weights.width;
   if (totalWeight === 0) return dam.score;
   
-  // Normalize weights
   const wSlope = weights.slope / totalWeight;
   const wFlow = weights.flow / totalWeight;
   const wSoil = weights.soil / totalWeight;
   const wFarmland = weights.farmland / totalWeight;
   const wWidth = weights.width / totalWeight;
   
-  // Normalize individual sub-scores (0-100 scale)
-  const sSlope = Math.max(0, 100 - (dam.slopeDeg * 25)); // Lower slope = higher suitability for check dam pool
+  const sSlope = Math.max(0, 100 - (dam.slopeDeg * 25));
   const sFlow = Math.min(100, dam.streamOrder * 16);
   const sSoil = dam.hsg.startsWith("B") ? 95 : dam.hsg.startsWith("C") ? 75 : 55;
   const sFarmland = Math.min(100, (dam.farmlandHa / 5000) * 100);
@@ -62,31 +106,4 @@ export function calculateMCDAScore(dam, weights) {
   
   const finalScore = (sSlope * wSlope) + (sFlow * wFlow) + (sSoil * wSoil) + (sFarmland * wFarmland) + (sWidth * wWidth);
   return Math.round(Math.min(99, Math.max(40, finalScore)));
-}
-
-/**
- * Computes predicted groundwater table rise and recharge radius
- * @param {number} capturedML Captured volume in Million Liters
- * @param {number} infiltrationRateMmHr Soil infiltration rate in mm/hr
- */
-export function calculateGroundwaterImpact(capturedML, infiltrationRateMmHr = 6.0) {
-  // Specific yield of unconfined alluvial aquifer ~ 0.12 (12%)
-  const specificYield = 0.12;
-  
-  // Estimated effective infiltration area in hectares
-  const rechargeAreaHa = Math.min(4500, (capturedML / 12) * 850);
-  
-  // Water table rise in meters: Delta H = Volume / (Area * Specific Yield)
-  const volumeM3 = capturedML * 1000;
-  const areaM2 = rechargeAreaHa * 10000;
-  const deltaHMeters = volumeM3 / (areaM2 * specificYield);
-  
-  // Recharge radius in km
-  const radiusKm = Math.sqrt(areaM2 / Math.PI) / 1000;
-  
-  return {
-    rechargeAreaHa: Math.round(rechargeAreaHa),
-    deltaHMeters: Number(Math.min(5.5, deltaHMeters).toFixed(2)),
-    radiusKm: Number(radiusKm.toFixed(2))
-  };
 }

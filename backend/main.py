@@ -6,12 +6,12 @@ from typing import List, Dict, Any
 
 from backend.dem_processor import dem_processor
 from backend.hydrology_calculator import hydrology_calc
-from backend.ml_engine import ml_engine
+from backend.mcda_engine import mcda_engine
 
 app = FastAPI(
-    title="PROJECT C - Modular Geospatial AI Engine",
-    description="Full-stack Python GIS Backend handling DEM rasters, ML predictions, and SCS-CN hydrology",
-    version="3.5.0"
+    title="PROJECT C - DEM-Driven Hydro-MCDA Decision Engine",
+    description="Full-stack Python GIS Backend handling COP30 DEM rasters, MCDA scoring, and SCS-CN hydrology",
+    version="4.0.0"
 )
 
 app.add_middleware(
@@ -26,7 +26,7 @@ app.add_middleware(
 def get_root():
     return {
         "status": "online",
-        "system": "PROJECT C Modular Python GIS Engine",
+        "system": "PROJECT C DEM-Driven Analytical Engine",
         "dem_info": dem_processor.get_info()
     }
 
@@ -37,12 +37,13 @@ def get_dem_info():
 @app.get("/api/dem/elevation")
 def get_point_elevation(lat: float = Query(...), lng: float = Query(...)):
     elev = dem_processor.get_elevation_at_point(lat, lng)
-    slope = dem_processor.calculate_slope_degrees(lat, lng)
+    slope, aspect = dem_processor.calculate_slope_and_aspect(lat, lng)
     return {
         "lat": lat,
         "lng": lng,
         "cop30_elevation_m": elev,
         "slope_deg": slope,
+        "aspect_deg": aspect,
         "source": "Copernicus 30m DEM (output_hh.tif)"
     }
 
@@ -61,20 +62,24 @@ def calculate_scs_cn(req: SCSCNRequest):
     }
 
 class ScanRequest(BaseModel):
-    model_type: str = "xgboost"
+    profile_key: str = "mcda-standard"
     weights: Dict[str, float] = {"slope": 30, "flow": 25, "soil": 20, "farmland": 15, "width": 10}
     meander_coords: List[List[float]] = []
 
 @app.post("/api/hydrology/scan")
 def scan_hydrology(req: ScanRequest):
-    predictions = ml_engine.predict_check_dams(
-        model_type=req.model_type,
-        weights=req.weights,
+    predictions = mcda_engine.generate_candidate_predictions(
+        profile_key=req.profile_key,
+        user_weights=req.weights,
         meander_coords=req.meander_coords
     )
     return {
         "status": "success",
-        "active_model": req.model_type,
-        "benchmarks": ml_engine.get_benchmarks().get(req.model_type, {}),
+        "active_profile": req.profile_key,
+        "backend_engine": "Python FastAPI + Copernicus 30m DEM (output_hh.tif)",
         "predictions": predictions
     }
+
+@app.post("/api/ml/extract-features")
+def extract_features(lat: float = Query(...), lng: float = Query(...)):
+    return mcda_engine.extract_ml_feature_vector(lat, lng)
