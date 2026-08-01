@@ -28,7 +28,7 @@ MCDA_PROFILES = {
     },
     'ml-readiness': {
         "name": "Future ML Training Readiness Mode",
-        "type": "Extensible Machine Learning Feature Extractor",
+        "type": "Extensible Machine Learning Feature Vector Pipeline",
         "badge": "ML Feature Vector Interface",
         "details": "Extracts 5-dimensional feature matrices (Elevation, Slope, Aspect, Soil, Distance) for future model training.",
         "default_weights": {"slope": 20, "flow": 20, "soil": 20, "farmland": 20, "width": 20}
@@ -36,9 +36,6 @@ MCDA_PROFILES = {
 }
 
 class MCDAEngine:
-    """
-    Multi-Criteria Decision Analysis (MCDA) Scoring & ML Feature Extraction Engine
-    """
     def get_profiles(self) -> Dict[str, Any]:
         return MCDA_PROFILES
 
@@ -51,9 +48,6 @@ class MCDAEngine:
         width_m: float, 
         weights: Dict[str, float]
     ) -> int:
-        """
-        Computes MCDA score (0 - 100) using normalized weighted linear combination
-        """
         w_total = sum(weights.values()) or 100.0
         w_slope = weights.get("slope", 30) / w_total
         w_flow = weights.get("flow", 25) / w_total
@@ -61,7 +55,6 @@ class MCDAEngine:
         w_farm = weights.get("farmland", 15) / w_total
         w_width = weights.get("width", 10) / w_total
 
-        # Sub-indicator linear scoring
         s_slope = max(0.0, 100.0 - (slope_deg * 25.0))
         s_elev = max(0.0, min(100.0, 100.0 - (elev_m * 1.1)))
         s_soil = 95.0 if hsg.startswith("B") else 75.0 if hsg.startswith("C") else 55.0
@@ -89,33 +82,33 @@ class MCDAEngine:
         # Extract dynamic candidates from DEM
         raw_candidates = dem_processor.extract_dynamic_candidate_sites(meander_coords, num_sites=5)
         
-        base_landmarks = [
-            {"name": "Mukkombu Upper Reach", "district": "Tiruchirappalli", "hsg": "B (Sandy Loam)", "recWidth": 240, "costLakhs": 18.5, "baseHa": 3400},
-            {"name": "Kallanai East Reach", "district": "Thanjavur / Ariyalur", "hsg": "B (Alluvial Loam)", "recWidth": 310, "costLakhs": 22.0, "baseHa": 4800},
-            {"name": "T.Palur Confluence Sector", "district": "Ariyalur", "hsg": "C (Clay Loam)", "recWidth": 190, "costLakhs": 14.8, "baseHa": 2900},
-            {"name": "Anaikaranchatram Reach", "district": "Mayiladuthurai", "hsg": "C (Clayey Alluvium)", "recWidth": 280, "costLakhs": 19.2, "baseHa": 3100},
-            {"name": "Sirkazhi Estuarine Buffer", "district": "Mayiladuthurai", "hsg": "D (Heavy Coastal Clay)", "recWidth": 350, "costLakhs": 16.0, "baseHa": 2100}
-        ]
+        districts = ["Tiruchirappalli", "Thanjavur", "Ariyalur", "Mayiladuthurai", "Mayiladuthurai Delta"]
+        hsgs = ["B (Sandy Loam)", "B (Alluvial Loam)", "C (Clay Loam)", "C (Clayey Alluvium)", "D (Heavy Coastal Clay)"]
+        widths = [240, 310, 190, 280, 350]
+        costs = [18.5, 22.0, 14.8, 19.2, 16.0]
 
         results = []
         for i, pt in enumerate(raw_candidates):
-            info = base_landmarks[i % len(base_landmarks)]
             lat, lng = pt["lat"], pt["lng"]
             elev_m = pt["elev"]
             slope_deg = pt["slope"]
+            hsg = hsgs[i % len(hsgs)]
+            width_m = widths[i % len(widths)]
+            cost_lakhs = costs[i % len(costs)]
+            district = districts[i % len(districts)]
             
-            score = self.calculate_mcda_score(elev_m, slope_deg, info["hsg"], info["baseHa"], info["recWidth"], weights)
-            farmland_ha = info["baseHa"]
+            farmland_ha = max(1800, min(5200, int(3500 - (i * 300) + (elev_m * 12))))
             farmland_acres = int(round(farmland_ha * HA_TO_ACRES))
+            score = self.calculate_mcda_score(elev_m, slope_deg, hsg, farmland_ha, width_m, weights)
             
             rec_storage_ml = round(14.2 + (i % 2) * 4.3, 1)
-            gw_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=info["costLakhs"])
+            gw_impact = hydrology_calc.calculate_groundwater_impact(rec_storage_ml, est_cost_lakhs=cost_lakhs)
 
             results.append({
                 "id": f"CD-0{i+1}",
                 "rank": i + 1,
-                "name": f"{info['name']} [{profile_info['badge']}]",
-                "district": info["district"],
+                "name": f"Kollidam Reach ({lat:.3f}°N, {lng:.3f}°E) | DEM: {elev_m}m",
+                "district": district,
                 "lat": lat,
                 "lng": lng,
                 "cop30_elevation_m": elev_m,
@@ -124,12 +117,12 @@ class MCDAEngine:
                 "calculatedScore": score,
                 "type": "Sub-surface Dyke + Spillway" if i == 1 else "Inflatable Rubber Weir" if i == 3 else "Salt Barrage Check Dam" if i == 4 else "Concrete Overflow Check Dam",
                 "recHeight": f"{(4.2 - i * 0.3):.1f} m",
-                "recWidth": f"{info['recWidth']} m",
-                "hsg": info["hsg"],
+                "recWidth": f"{width_m} m",
+                "hsg": hsg,
                 "recStorageML": rec_storage_ml,
                 "rechargeRadiusKm": gw_impact["recharge_radius_km"],
                 "aquiferRiseM": gw_impact["groundwater_gain_m"],
-                "costLakhs": info["costLakhs"],
+                "costLakhs": cost_lakhs,
                 "annualIrrigationValueLakhs": gw_impact["annual_irrigation_value_lakhs"],
                 "farmlandHa": farmland_ha,
                 "farmlandAcres": farmland_acres,
@@ -140,26 +133,5 @@ class MCDAEngine:
             })
 
         return results
-
-    def extract_ml_feature_vector(self, lat: float, lng: float) -> Dict[str, Any]:
-        """
-        Extensible ML Feature Vector Extractor for future model training
-        """
-        elev_m = dem_processor.get_elevation_at_point(lat, lng)
-        slope_deg, aspect_deg = dem_processor.calculate_slope_and_aspect(lat, lng)
-        
-        return {
-            "lat": lat,
-            "lng": lng,
-            "feature_vector": {
-                "elevation_m": elev_m,
-                "slope_deg": slope_deg,
-                "aspect_deg": aspect_deg,
-                "stream_order": 6,
-                "soil_hsg_class": "B",
-                "distance_to_farmland_m": 450.0
-            },
-            "status": "ready_for_ml_training"
-        }
 
 mcda_engine = MCDAEngine()
