@@ -11,6 +11,7 @@ from backend.hydrology_calculator import hydrology_calc
 from backend.mcda_engine import mcda_engine
 from backend.ml_engine import ml_engine
 from backend.river_processor import river_processor
+from backend.lclu_processor import lclu_processor
 
 # Main web service application built with FastAPI
 app = FastAPI(
@@ -37,7 +38,8 @@ def get_root():
         "dem_info": dem_processor.get_info(),
         "soil_info": soil_processor.get_info(),
         "rainfall_info": rainfall_processor.get_info(),
-        "river_network_info": river_processor.get_info()
+        "river_network_info": river_processor.get_info(),
+        "lclu_info": lclu_processor.get_info()
     }
 
 @app.get("/api/dem/info")
@@ -51,6 +53,7 @@ def get_point_elevation(lat: float = Query(...), lng: float = Query(...)):
     height_m = dem_processor.get_elevation_at_point(lat, lng)
     slope_deg, aspect_deg = dem_processor.calculate_slope_and_aspect(lat, lng)
     soil_details = soil_processor.get_soil_at_point(lat, lng)
+    lclu_details = lclu_processor.get_lclu_at_point(lat, lng)
     return {
         "lat": lat,
         "lng": lng,
@@ -59,7 +62,8 @@ def get_point_elevation(lat: float = Query(...), lng: float = Query(...)):
         "aspect_deg": aspect_deg,
         "soil_hsg": soil_details["hsg"],
         "soil_ksat_mm_hr": soil_details["ksat_mm_hr"],
-        "source": "Copernicus 30m DEM + Soil GeoTIFF"
+        "lclu": lclu_details,
+        "source": "Copernicus 30m DEM + Soil GeoTIFF + ESA WorldCover 10m LCLU"
     }
 
 @app.get("/api/rainfall/info")

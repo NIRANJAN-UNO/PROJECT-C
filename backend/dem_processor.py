@@ -150,14 +150,29 @@ class DEMProcessor:
 
     def is_inside_exclusion_zone(self, lat: float, lng: float) -> dict:
         """
-        Returns the exclusion zone if a coordinate falls inside a known water body / existing dam.
+        Returns the exclusion zone if a coordinate falls inside a known water body / existing dam
+        or is classified as Built-up Urban or Open Water Body by 10m satellite LCLU data.
         Returns None if the coordinate is safe to place a check dam.
         """
+        # 1. Check known spatial bounding box exclusion zones
         for zone in WATER_BODY_EXCLUSION_ZONES:
             if (zone["lat_min"] <= lat <= zone["lat_max"] and
                     zone["lng_min"] <= lng <= zone["lng_max"]):
                 return zone
+
+        # 2. Check 10m satellite LCLU raster classification
+        try:
+            from backend.lclu_processor import lclu_processor
+            lclu = lclu_processor.get_lclu_at_point(lat, lng)
+            if lclu.get("is_built_up"):
+                return {"name": f"Urban Built-up Area ({lclu['name']})", "reason": "Dams cannot be built in urban settlements"}
+            if lclu.get("is_water_body"):
+                return {"name": f"Existing Surface Water Body ({lclu['name']})", "reason": "Natural water body already present"}
+        except Exception:
+            pass
+
         return None
+
 
     def extract_dynamic_candidate_sites(
         self, 

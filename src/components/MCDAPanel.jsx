@@ -21,7 +21,12 @@ export default function MCDAPanel({
     { key: 'width', label: 'Stream stability', icon: Waves, hint: 'More stable is better' }
   ];
 
-  const selectableProfiles = Object.entries(MCDA_PROFILES).filter(([key]) => !key.startsWith('ml-'));
+  const modelOptions = [
+    { key: 'mcda-standard', label: 'Standard MCDA' },
+    { key: 'mcda-slope', label: 'Slope Focus' },
+    { key: 'ml-kmeans', label: 'AI K-Means' },
+    { key: 'ml-randomforest', label: 'AI Random Forest' }
+  ];
 
   return (
     <div className="w-full bg-white p-4 flex flex-col h-[calc(100vh-72px)] border-l border-slate-200 overflow-y-auto space-y-5 scrollbar-thin scrollbar-thumb-slate-200">
@@ -29,25 +34,25 @@ export default function MCDAPanel({
       {/* 1. Model Presets Header */}
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">Decision Criteria & Profile</h2>
-          <span className="text-[10px] text-slate-400 font-medium">Sum: 100%</span>
+          <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">AI & Criteria Engine</h2>
+          <span className="text-[10px] text-slate-400 font-medium">Select Model</span>
         </div>
 
         {activeModel && onSelectModel && (
           <div className="grid grid-cols-2 gap-1.5 bg-slate-100/70 p-1 rounded-lg border border-slate-200/80">
-            {selectableProfiles.map(([key]) => {
-              const isSelected = activeModel === key;
+            {modelOptions.map(opt => {
+              const isSelected = activeModel === opt.key;
               return (
                 <button
-                  key={key}
-                  onClick={() => onSelectModel(key)}
+                  key={opt.key}
+                  onClick={() => onSelectModel(opt.key)}
                   className={`py-1.5 px-2 rounded text-center text-xs font-bold transition ${
                     isSelected 
                       ? 'bg-[#0f766e] text-white shadow-sm' 
                       : 'text-slate-600 hover:text-slate-900 hover:bg-white/60'
                   }`}
                 >
-                  {key === 'mcda-standard' ? 'Standard' : 'Slope-Optimized'}
+                  {opt.label}
                 </button>
               );
             })}

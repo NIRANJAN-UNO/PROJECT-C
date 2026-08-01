@@ -303,7 +303,11 @@ export default function MapView({
                 </tr>
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td style="padding: 3px 0; color: #64748b;">▤ Soil group</td>
-                  <td style="text-align: right; font-weight: bold; padding: 3px 0;">${dam.hsg.split(' ')[0]}</td>
+                  <td style="text-align: right; font-weight: bold; padding: 3px 0;">${dam.hsg ? dam.hsg.split(' ')[0] : 'B'}</td>
+                </tr>
+                <tr style="border-bottom: 1px solid #f1f5f9;">
+                  <td style="padding: 3px 0; color: #64748b;">🌱 LCLU Land Cover</td>
+                  <td style="text-align: right; font-weight: bold; color: #0f766e; padding: 3px 0;">${dam.lclu ? dam.lclu.name : 'Cropland (10m)'}</td>
                 </tr>
                 <tr style="border-bottom: 1px solid #f1f5f9;">
                   <td style="padding: 3px 0; color: #64748b;">💧 Storage (ML)</td>
