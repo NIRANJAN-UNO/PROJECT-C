@@ -110,8 +110,14 @@ export default function App() {
       console.warn("FastAPI backend offline, using local raster estimate:", err);
     }
 
-    const hydro = calculateSCSCNRunoff(rainfallMM, 82, 450);
-    const gw = calculateGroundwaterImpact(hydro.volumeML, 5.5);
+    const localHeight = 3.5;
+    const localWidth = 220;
+    
+    // Dynamic local storage based on exact terrain slope: gentle slopes hold more volume!
+    const recStorageML = Number(Math.max(5.0, Math.min(45.0, (localWidth * localHeight * 0.015) / Math.max(0.2, sampledSlope))).toFixed(1));
+    
+    // Local groundwater table rise & cropland recharge computed from local storage
+    const gw = calculateGroundwaterImpact(recStorageML, 5.5);
 
     const newDam = {
       id: "CD-CUSTOM",
@@ -125,17 +131,17 @@ export default function App() {
       score: 88,
       calculatedScore: 88,
       type: "Proposed Concrete Overflow Check Dam",
-      recHeight: "3.5 m",
-      recWidth: "220 m",
+      recHeight: `${localHeight} m`,
+      recWidth: `${localWidth} m`,
       hsg: "B (Alluvial Loam)",
       slopeDeg: sampledSlope,
       streamOrder: 6,
       soilInfiltration: "5.5 mm/hr",
-      recStorageML: hydro.volumeML,
+      recStorageML: recStorageML,
       rechargeRadiusKm: gw.radiusKm,
       aquiferRiseM: gw.deltaHMeters,
       costLakhs: 17.5,
-      annualIrrigationValueLakhs: Math.round((hydro.volumeML * 2.8) / 10),
+      annualIrrigationValueLakhs: Math.round((recStorageML * 2.8) / 10),
       farmlandHa: gw.rechargeAreaHa,
       farmlandAcres: gw.rechargeAreaAcres,
       crossSection: [
