@@ -123,10 +123,11 @@ export function calculateGroundwaterImpact(capturedML, infiltrationRateMmHr = 6.
 
 /**
  * Recalculates MCDA Score for candidate check-dam locations
+ * Robust to both Python API and Javascript keys to prevent NaN
  */
 export function calculateMCDAScore(dam, weights) {
   const totalWeight = weights.slope + weights.flow + weights.soil + weights.farmland + weights.width;
-  if (totalWeight === 0) return dam.score;
+  if (totalWeight === 0) return dam.score || dam.calculatedScore || 85;
   
   const wSlope = weights.slope / totalWeight;
   const wFlow = weights.flow / totalWeight;
@@ -134,14 +135,23 @@ export function calculateMCDAScore(dam, weights) {
   const wFarmland = weights.farmland / totalWeight;
   const wWidth = weights.width / totalWeight;
   
-  const sSlope = Math.max(0, 100 - (dam.slopeDeg * 25));
-  const sFlow = Math.min(100, dam.streamOrder * 16);
-  const sSoil = dam.hsg.startsWith("B") ? 95 : dam.hsg.startsWith("C") ? 75 : 55;
-  const sFarmland = Math.min(100, (dam.farmlandHa / 5000) * 100);
-  const sWidth = Math.min(100, (350 - dam.recWidth.replace(" m", "")) / 2);
+  const slope = dam.slope_deg !== undefined ? dam.slope_deg : (dam.slopeDeg || 0.8);
+  const streamOrder = dam.streamOrder !== undefined ? dam.streamOrder : 6;
+  const hsg = dam.hsg || "B";
+  const farmlandHa = dam.farmlandHa !== undefined ? dam.farmlandHa : (dam.farmlandHa || 3000);
+  
+  const rawWidth = dam.recWidth ? String(dam.recWidth).replace(" m", "") : "250";
+  const widthVal = parseFloat(rawWidth) || 250;
+  
+  const sSlope = Math.max(0, 100 - (slope * 25));
+  const sFlow = Math.min(100, streamOrder * 16);
+  const sSoil = hsg.startsWith("B") ? 95 : hsg.startsWith("C") ? 75 : 55;
+  const sFarmland = Math.min(100, (farmlandHa / 5000) * 100);
+  const sWidth = Math.min(100, (350 - widthVal) / 2);
   
   const finalScore = (sSlope * wSlope) + (sFlow * wFlow) + (sSoil * wSoil) + (sFarmland * wFarmland) + (sWidth * wWidth);
-  return Math.round(Math.min(99, Math.max(40, finalScore)));
+  const score = Math.round(finalScore) || dam.score || 85;
+  return Math.min(99, Math.max(40, score));
 }
 
 /**
