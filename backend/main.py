@@ -8,11 +8,12 @@ from backend.dem_processor import dem_processor
 from backend.rainfall_processor import rainfall_processor
 from backend.hydrology_calculator import hydrology_calc
 from backend.mcda_engine import mcda_engine
+from backend.ml_engine import ml_engine
 
 app = FastAPI(
-    title="PROJECT C - Real-World Geospatial GIS & Precipitation API",
-    description="Full-stack Python GIS Backend handling COP30 DEM & 10-Year Daily Rainfall GeoTIFF Rasters",
-    version="5.0.0"
+    title="PROJECT C - Real-World Geospatial GIS, ML & Precipitation API",
+    description="Full-stack Python GIS Backend handling COP30 DEM, Real Rainfall Rasters, and K-Means AI Predictions",
+    version="6.0.0"
 )
 
 app.add_middleware(
@@ -27,7 +28,7 @@ app.add_middleware(
 def get_root():
     return {
         "status": "online",
-        "system": "PROJECT C Real-World GIS Engine",
+        "system": "PROJECT C Real-World GIS & AI Engine",
         "dem_info": dem_processor.get_info(),
         "rainfall_info": rainfall_processor.get_info()
     }
@@ -84,15 +85,23 @@ class ScanRequest(BaseModel):
 
 @app.post("/api/hydrology/scan")
 def scan_hydrology(req: ScanRequest):
-    predictions = mcda_engine.generate_candidate_predictions(
-        profile_key=req.profile_key,
-        user_weights=req.weights,
-        meander_coords=req.meander_coords
-    )
+    if req.profile_key == 'ml-readiness':
+        # Train and run actual machine learning (K-Means Clustering + RandomForestRegressor)
+        predictions = ml_engine.train_and_predict(req.meander_coords)
+        engine_type = "Python scikit-learn (K-Means + RandomForestRegressor)"
+    else:
+        # Run analytical Multi-Criteria Decision Analysis (MCDA)
+        predictions = mcda_engine.generate_candidate_predictions(
+            profile_key=req.profile_key,
+            user_weights=req.weights,
+            meander_coords=req.meander_coords
+        )
+        engine_type = "Python MCDA Scoring Engine"
+
     return {
         "status": "success",
         "active_profile": req.profile_key,
-        "backend_engine": "Python FastAPI + COP30 DEM + Real Rainfall TIFs",
+        "backend_engine": f"{engine_type} + Copernicus 30m DEM + Real Rainfall TIFs",
         "predictions": predictions
     }
 

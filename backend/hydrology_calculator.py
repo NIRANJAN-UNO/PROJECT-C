@@ -19,13 +19,6 @@ class HydrologyCalculator:
         curve_number: float = 80.0, 
         catchment_area_sq_km: float = 450.0
     ) -> Dict[str, Any]:
-        """
-        USDA Soil Conservation Service Curve Number (SCS-CN) Runoff Formula:
-        - If date_str is provided, queries real GeoTIFF precipitation raster (E:\rainfall data)
-        - Potential Maximum Retention S = (25400 / CN) - 254
-        - Initial Abstraction Ia = 0.2 * S
-        - Direct Runoff Depth Q = (P - Ia)^2 / (P - Ia + S)
-        """
         real_precip_info = None
         if rainfall_mm is None and date_str:
             real_precip_info = rainfall_processor.get_daily_rainfall(date_str)
@@ -66,11 +59,13 @@ class HydrologyCalculator:
         est_cost_lakhs: float = 18.0
     ) -> Dict[str, Any]:
         """
-        Computes groundwater aquifer table elevation rise (Δh meters), recharge radius,
-        and benefited agricultural cropland area in Acres and Hectares.
+        Computes groundwater aquifer table elevation rise (Δh meters) using a sub-linear 
+        recharge zone scaling to simulate localized pool infiltration.
         """
         specific_yield = 0.12  # Alluvial aquifer specific yield
-        recharge_area_ha = min(5000.0, (captured_ml / 12.0) * 850.0)
+        
+        # Sub-linear square root scaling of recharge area to model realistic mounding
+        recharge_area_ha = round(5.0 + math.sqrt(captured_ml) * 3.5, 1)
         recharge_area_acres = round(recharge_area_ha * HA_TO_ACRES)
         
         volume_m3 = captured_ml * 1000.0
@@ -86,7 +81,7 @@ class HydrologyCalculator:
 
         return {
             "captured_ml": captured_ml,
-            "recharge_area_ha": round(recharge_area_ha),
+            "recharge_area_ha": recharge_area_ha,
             "recharge_area_acres": recharge_area_acres,
             "groundwater_gain_m": round(delta_h_meters, 2),
             "recharge_radius_km": round(radius_km, 2),

@@ -30,12 +30,12 @@ export const MCDA_PROFILES = {
     details: "Prioritizes high-permeability sandy alluvial channels (HSG B) for rapid deep aquifer recharge."
   },
   'ml-readiness': {
-    name: "Future ML Readiness Interface",
-    type: "Extensible Machine Learning Feature Vector Pipeline",
-    score: "Feature Extraction",
-    badge: "ML Ready Pipeline",
+    name: "AI Prediction Engine",
+    type: "Machine Learning (K-Means + RandomForest)",
+    score: "AI Predicted",
+    badge: "K-Means AI Predictor",
     color: "blue",
-    details: "Extracts 5-dimensional feature matrices (Elevation, Slope, Aspect, Soil, Distance) for future model training."
+    details: "Runs scikit-learn K-Means clustering and RandomForestRegressor on Copernicus 30m DEM variables."
   }
 };
 
@@ -50,7 +50,7 @@ const KNOWN_TOWNS = [
   { name: "Kabisthalam", lat: 10.940, lng: 79.255 },
   { name: "Papanasam", lat: 10.927, lng: 79.280 },
   { name: "Lower Anicut", lat: 11.139, lng: 79.447 },
-  { name: "T. Palur", "lat": 11.125, "lng": 79.412 },
+  { name: "T. Palur", lat: 11.125, lng: 79.412 },
   { name: "Sirkazhi", lat: 11.238, lng: 79.734 },
   { name: "Kollidam Town", lat: 11.328, lng: 79.791 },
   { name: "Mahendrapalli", lat: 11.348, lng: 79.882 }
@@ -105,7 +105,7 @@ export function calculateSCSCNRunoff(rainfallMM, curveNumber = 80, catchmentArea
  */
 export function calculateGroundwaterImpact(capturedML, infiltrationRateMmHr = 6.0) {
   const specificYield = 0.12;
-  const rechargeAreaHa = Math.min(4500, (capturedML / 12) * 850);
+  const rechargeAreaHa = Number((5.0 + Math.sqrt(capturedML) * 3.5).toFixed(1));
   const rechargeAreaAcres = Math.round(rechargeAreaHa * HA_TO_ACRES);
   
   const volumeM3 = capturedML * 1000;
@@ -114,7 +114,7 @@ export function calculateGroundwaterImpact(capturedML, infiltrationRateMmHr = 6.
   const radiusKm = Math.sqrt(areaM2 / Math.PI) / 1000;
   
   return {
-    rechargeAreaHa: Math.round(rechargeAreaHa),
+    rechargeAreaHa: rechargeAreaHa,
     rechargeAreaAcres: rechargeAreaAcres,
     deltaHMeters: Number(Math.min(5.5, deltaHMeters).toFixed(2)),
     radiusKm: Number(radiusKm.toFixed(2))
@@ -179,7 +179,9 @@ export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-stand
     const farmlandHa = Math.round(Math.max(1500, Math.min(5000, 4200 - (elev * 25) + (slope * 300))));
     const farmlandAcres = Math.round(farmlandHa * HA_TO_ACRES);
     const recStorageML = storageMLs[i % storageMLs.length];
-    const gwGainM = Number((maxVal(1.5, 3.4 - (i * 0.45))).toFixed(2));
+    
+    // Call correct sub-linear groundwater table calculator
+    const gw = calculateGroundwaterImpact(recStorageML);
 
     const nearTown = getNearestVillage(lat, lng);
     const townSuffix = nearTown ? ` (Near ${nearTown})` : "";
@@ -205,8 +207,8 @@ export function scanRiverChannelForDams(meanderCoords, activeModel = 'mcda-stand
       streamOrder: 6,
       soilInfiltration: i < 2 ? "7.2 mm/hr" : i < 4 ? "4.5 mm/hr" : "2.1 mm/hr",
       recStorageML: recStorageML,
-      rechargeRadiusKm: Number((4.2 - i * 0.4).toFixed(1)),
-      aquiferRiseM: gwGainM,
+      rechargeRadiusKm: gw.radiusKm,
+      aquiferRiseM: gw.deltaHMeters,
       costLakhs: costLakhs,
       annualIrrigationValueLakhs: Math.round(costLakhs * 2.3),
       farmlandHa: farmlandHa,
