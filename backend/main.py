@@ -10,6 +10,7 @@ from backend.rainfall_processor import rainfall_processor
 from backend.hydrology_calculator import hydrology_calc
 from backend.mcda_engine import mcda_engine
 from backend.ml_engine import ml_engine
+from backend.river_processor import river_processor
 
 # Main web service application built with FastAPI
 app = FastAPI(
@@ -35,7 +36,8 @@ def get_root():
         "system": "Geospatial GIS & AI Analysis Engine",
         "dem_info": dem_processor.get_info(),
         "soil_info": soil_processor.get_info(),
-        "rainfall_info": rainfall_processor.get_info()
+        "rainfall_info": rainfall_processor.get_info(),
+        "river_network_info": river_processor.get_info()
     }
 
 @app.get("/api/dem/info")
@@ -136,3 +138,61 @@ def extract_features(lat: float = Query(...), lng: float = Query(...)):
         "ksat_mm_hr": soil_details["ksat_mm_hr"]
     }
 
+
+# ─── River Network Endpoints ─────────────────────────────────────────────────
+
+@app.get("/api/river/info")
+def get_river_info():
+    """Returns summary info about the loaded river network GeoJSON."""
+    return river_processor.get_info()
+
+@app.get("/api/river/network")
+def get_river_network(rivers_only: bool = Query(False)):
+    """Returns the full river network GeoJSON for Leaflet rendering.
+    Set rivers_only=true to get only the 184 main river segments (no canals)."""
+    if rivers_only:
+        return river_processor.get_river_only_geojson()
+    return river_processor.get_geojson()
+
+@app.get("/api/river/intersections")
+def get_river_intersections(top: int = Query(10)):
+    """Returns top N tributary intersection nodes sorted by stream convergence priority."""
+    return {
+        "type": "FeatureCollection",
+        "features": [
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [pt["lng"], pt["lat"]]},
+                "properties": {
+                    "segments_meeting": pt["segments_meeting"],
+                    "waterway_types": pt["waterway_types"],
+                    "priority": pt["priority"]
+                }
+            }
+            for pt in river_processor.get_top_n_intersections(top)
+        ]
+    }
+
+@app.post("/api/river/scan-intersections")
+def scan_from_intersections():
+    """
+    Option B: AI site selection driven directly from OSM river intersection nodes.
+    Extracts real confluence coordinates from river network GeoJSON and runs ML models.
+    """
+    # Get meander coords extracted directly from GeoJSON river lines
+    geojson_coords = river_processor.get_meander_coords_from_geojson()
+
+    # Run K-Means on the real river coordinates
+    kmeans_sites = ml_engine.predict_kmeans(geojson_coords)
+
+    # Run RandomForest on the real river coordinates
+    rf_sites = ml_engine.predict_randomforest(geojson_coords)
+
+    return {
+        "status": "success",
+        "source": "OSM River Network GeoJSON (river network.geojson)",
+        "total_coords_used": len(geojson_coords),
+        "tributary_intersections": len(river_processor.get_intersections()),
+        "kmeans_predictions": kmeans_sites,
+        "randomforest_predictions": rf_sites
+    }

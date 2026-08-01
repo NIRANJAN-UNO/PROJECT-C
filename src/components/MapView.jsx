@@ -1,12 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import { RIVER_PATH, HIGH_RES_RIVER_MEANDER, TRIBUTARY_STREAMS, KOLLIDAM_CENTER, KOLLIDAM_BOUNDS } from '../data/kollidamData';
-import { Layers, Sparkles, Anchor } from 'lucide-react';
+import { Layers, Sparkles, Anchor, GitBranch } from 'lucide-react';
 
 // Custom Marker SVG Creator
-const createMarkerIcon = (rank, isCustom = false) => {
-  const color = isCustom ? '#F59E0B' : '#00F2FE';
-  const label = isCustom ? 'Custom' : `#${rank}`;
+const createMarkerIcon = (rank, isCustom = false, isIntersection = false) => {
+  const color = isCustom ? '#F59E0B' : isIntersection ? '#A78BFA' : '#00F2FE';
+  const label = isCustom ? '⚡' : isIntersection ? '⊕' : `#${rank}`;
   
   const svg = `
     <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
@@ -26,16 +26,14 @@ const createMarkerIcon = (rank, isCustom = false) => {
 };
 
 // Helper: Snap any map click coordinates to the nearest point on the river meander line
-function snapToRiverMeander(clickLatLng) {
+function snapToRiverMeander(clickLatLng, realCoords) {
+  const pool = realCoords && realCoords.length > 0 ? realCoords : HIGH_RES_RIVER_MEANDER;
   let minDistance = Infinity;
-  let snappedPoint = HIGH_RES_RIVER_MEANDER[0];
+  let snappedPoint = pool[0];
 
-  const clickLat = clickLatLng.lat;
-  const clickLng = clickLatLng.lng;
-
-  for (let i = 0; i < HIGH_RES_RIVER_MEANDER.length; i++) {
-    const pt = HIGH_RES_RIVER_MEANDER[i];
-    const dist = Math.pow(pt[0] - clickLat, 2) + Math.pow(pt[1] - clickLng, 2);
+  for (let i = 0; i < pool.length; i++) {
+    const pt = pool[i];
+    const dist = Math.pow(pt[0] - clickLatLng.lat, 2) + Math.pow(pt[1] - clickLatLng.lng, 2);
     if (dist < minDistance) {
       minDistance = dist;
       snappedPoint = pt;
@@ -58,14 +56,61 @@ export default function MapView({
   const mapInstanceRef = useRef(null);
   const layerGroupRef = useRef(null);
 
+  // Real river network state
+  const [riverGeoJSON, setRiverGeoJSON] = useState(null);
+  const [riverIntersections, setRiverIntersections] = useState([]);
+  const [showIntersections, setShowIntersections] = useState(true);
+  const riverCoordPoolRef = useRef(HIGH_RES_RIVER_MEANDER);
+
+  // Fetch real river network GeoJSON from FastAPI backend
+  useEffect(() => {
+    async function fetchRiverNetwork() {
+      try {
+        // Fetch main river segments only (rivers_only=true)
+        const res = await fetch('http://127.0.0.1:8000/api/river/network?rivers_only=true');
+        if (res.ok) {
+          const data = await res.json();
+          setRiverGeoJSON(data);
+          // Extract coord pool for snapping virtual dams to real river line
+          const coords = [];
+          (data.features || []).forEach(f => {
+            (f.geometry?.coordinates || []).forEach(c => {
+              coords.push([c[1], c[0]]); // [lat, lng]
+            });
+          });
+          if (coords.length > 0) {
+            riverCoordPoolRef.current = coords;
+          }
+        }
+      } catch (err) {
+        console.warn('River GeoJSON offline, using local meander data');
+      }
+    }
+
+    async function fetchIntersections() {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/river/intersections?top=10');
+        if (res.ok) {
+          const data = await res.json();
+          setRiverIntersections(data.features || []);
+        }
+      } catch (err) {
+        console.warn('River intersections offline');
+      }
+    }
+
+    fetchRiverNetwork();
+    fetchIntersections();
+  }, []);
+
   // Initialize Map Instance
   useEffect(() => {
     if (!mapContainerRef.current) return;
     if (mapInstanceRef.current) return;
 
     const bounds = L.latLngBounds(
-      L.latLng(10.60, 78.40),
-      L.latLng(11.60, 80.10)
+      L.latLng(10.40, 78.30),
+      L.latLng(11.80, 80.20)
     );
 
     const map = L.map(mapContainerRef.current, {
@@ -87,8 +132,8 @@ export default function MapView({
     layerGroupRef.current = layerGroup;
 
     map.on('click', (e) => {
-      const snappedLatLng = snapToRiverMeander(e.latlng);
-      onPlaceCustomDam(snappedLatLng);
+      const snapped = snapToRiverMeander(e.latlng, riverCoordPoolRef.current);
+      onPlaceCustomDam(snapped);
     });
 
     mapInstanceRef.current = map;
@@ -99,7 +144,7 @@ export default function MapView({
     };
   }, []);
 
-  // Render Dynamic Layers
+  // Render Dynamic Layers whenever anything changes
   useEffect(() => {
     const map = mapInstanceRef.current;
     const layerGroup = layerGroupRef.current;
@@ -125,20 +170,56 @@ export default function MapView({
       }).addTo(layerGroup);
     }
 
-    // 2. High-Resolution River Channel & Tributary Network
+    // 2. Real OSM River Network GeoJSON Layer (Option A)
     if (layers.riverPath) {
-      L.polyline(HIGH_RES_RIVER_MEANDER, { color: '#3B82F6', weight: 14, opacity: 0.25, lineCap: 'round', lineJoin: 'round' }).addTo(layerGroup);
-      L.polyline(HIGH_RES_RIVER_MEANDER, { color: '#00F2FE', weight: 6, opacity: 0.95, lineCap: 'round', lineJoin: 'round' }).addTo(layerGroup);
+      if (riverGeoJSON && riverGeoJSON.features && riverGeoJSON.features.length > 0) {
+        // Render real OSM river lines — glow effect with two passes
+        L.geoJSON(riverGeoJSON, {
+          style: { color: '#3B82F6', weight: 12, opacity: 0.18, lineCap: 'round', lineJoin: 'round' }
+        }).addTo(layerGroup);
+        L.geoJSON(riverGeoJSON, {
+          style: { color: '#00F2FE', weight: 4, opacity: 0.92, lineCap: 'round', lineJoin: 'round' }
+        }).addTo(layerGroup);
+      } else {
+        // Fallback to meander polyline while GeoJSON is loading
+        L.polyline(HIGH_RES_RIVER_MEANDER, { color: '#3B82F6', weight: 14, opacity: 0.25 }).addTo(layerGroup);
+        L.polyline(HIGH_RES_RIVER_MEANDER, { color: '#00F2FE', weight: 6, opacity: 0.95 }).addTo(layerGroup);
 
-      TRIBUTARY_STREAMS.forEach(stream => {
-        L.polyline(stream, { color: '#38BDF8', weight: 2.5, opacity: 0.7, dashArray: '4,4' }).addTo(layerGroup);
-      });
+        TRIBUTARY_STREAMS.forEach(stream => {
+          L.polyline(stream, { color: '#38BDF8', weight: 2.5, opacity: 0.7, dashArray: '4,4' }).addTo(layerGroup);
+        });
+      }
+
+      // Render tributary intersection convergence nodes (Option B)
+      if (showIntersections && riverIntersections.length > 0) {
+        riverIntersections.forEach((feat, idx) => {
+          const coords = feat.geometry?.coordinates;
+          if (!coords) return;
+          const lat = coords[1];
+          const lng = coords[0];
+          const segs = feat.properties?.segments_meeting || 3;
+
+          L.circleMarker([lat, lng], {
+            radius: 6 + segs,
+            color: '#A78BFA',
+            fillColor: '#A78BFA',
+            fillOpacity: 0.8,
+            weight: 2
+          }).bindPopup(`
+            <div style="font-size:11px; color:#E2E8F0; padding:4px">
+              <strong style="color:#A78BFA">⊕ Tributary Confluence Node</strong><br/>
+              ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E<br/>
+              <strong>${segs} stream segments converge</strong><br/>
+              <span style="color:#94A3B8">Prime check-dam location due to concentrated runoff</span>
+            </div>
+          `).addTo(layerGroup);
+        });
+      }
     }
 
     // 3. Dynamic Model Predicted Check Dams & Recharge Cones
     if (dams && dams.length > 0) {
       dams.forEach(dam => {
-        // Recharge Cone
         if (layers.rechargeZones) {
           L.circle([dam.lat, dam.lng], {
             radius: dam.rechargeRadiusKm * 1000,
@@ -150,7 +231,6 @@ export default function MapView({
           }).addTo(layerGroup);
         }
 
-        // Candidate Marker
         if (layers.candidateSites) {
           const marker = L.marker([dam.lat, dam.lng], {
             icon: createMarkerIcon(dam.rank, false)
@@ -162,8 +242,9 @@ export default function MapView({
                 ${dam.id}: ${dam.name}
               </div>
               <div style="font-size: 11px; color: #CBD5E1; line-height: 1.6;">
-                <p><strong>COP30 DEM Elevation:</strong> ${dam.cop30_elevation_m !== undefined ? dam.cop30_elevation_m : '45.0'} meters MSL</p>
+                <p><strong>COP30 DEM Elevation:</strong> ${dam.cop30_elevation_m !== undefined ? dam.cop30_elevation_m : '45.0'} m MSL</p>
                 <p><strong>Terrain Slope:</strong> ${dam.slope_deg !== undefined ? dam.slope_deg : '0.8'}°</p>
+                <p><strong>Soil HSG:</strong> ${dam.hsg || 'B (Sandy Loam)'}</p>
                 <p><strong>Coordinates:</strong> ${dam.lat.toFixed(4)}°N, ${dam.lng.toFixed(4)}°E</p>
                 <p><strong>Structure Type:</strong> ${dam.type}</p>
                 <p><strong>Storage Capacity:</strong> ${dam.recStorageML} Million Liters</p>
@@ -180,7 +261,7 @@ export default function MapView({
       });
     }
 
-    // 4. Virtual Custom Dam Marker with Real-Time COP30 DEM Telemetry
+    // 4. Virtual Custom Dam Marker
     if (customDam) {
       const customMarker = L.marker([customDam.lat, customDam.lng], {
         icon: createMarkerIcon('?', true)
@@ -204,7 +285,7 @@ export default function MapView({
 
       customMarker.bindPopup(popupContent).addTo(layerGroup);
     }
-  }, [layers, dams, customDam, onSelectDam]);
+  }, [layers, dams, customDam, onSelectDam, riverGeoJSON, riverIntersections, showIntersections]);
 
   // Fly to selected dam
   useEffect(() => {
@@ -218,19 +299,29 @@ export default function MapView({
   return (
     <div className="relative w-full h-[540px] rounded-xl overflow-hidden border border-blue-900/40 glass-panel">
       {/* Map Control Floating Toolbar */}
-      <div className="absolute top-4 right-4 z-[1000] glass-panel p-3 text-xs space-y-2 max-w-[220px]">
+      <div className="absolute top-4 right-4 z-[1000] glass-panel p-3 text-xs space-y-2 max-w-[230px]">
         <div className="flex items-center gap-1.5 font-bold text-cyan-400 border-b border-slate-700/60 pb-1">
           <Layers className="w-4 h-4" />
           <span>Spatial Layer Toggles</span>
         </div>
 
         <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-cyan-300">
-          <span>River Topology & Meanders</span>
+          <span>OSM River Network</span>
           <input 
             type="checkbox" 
             checked={layers.riverPath} 
             onChange={(e) => setLayers({...layers, riverPath: e.target.checked})}
             className="accent-cyan-400"
+          />
+        </label>
+
+        <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-purple-300">
+          <span className="flex items-center gap-1"><GitBranch className="w-3 h-3" /> Confluence Nodes</span>
+          <input 
+            type="checkbox" 
+            checked={showIntersections} 
+            onChange={(e) => setShowIntersections(e.target.checked)}
+            className="accent-purple-400"
           />
         </label>
 
@@ -263,12 +354,26 @@ export default function MapView({
             className="accent-rose-400"
           />
         </label>
+
+        {/* River network status indicator */}
+        <div className="pt-1 border-t border-slate-700/40 text-[10px]">
+          <div className={`flex items-center gap-1 ${riverGeoJSON ? 'text-emerald-400' : 'text-amber-400'}`}>
+            <div className={`w-1.5 h-1.5 rounded-full ${riverGeoJSON ? 'bg-emerald-400' : 'bg-amber-400'}`}></div>
+            {riverGeoJSON ? `Live OSM: ${riverGeoJSON.features?.length || 0} river segments` : 'Loading OSM river data...'}
+          </div>
+          {riverIntersections.length > 0 && (
+            <div className="flex items-center gap-1 text-purple-400 mt-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div>
+              {riverIntersections.length} tributary confluence nodes
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Map Click Instructions Banner */}
       <div className="absolute bottom-4 left-4 z-[1000] glass-panel px-3 py-2 text-[11px] flex items-center gap-2 text-cyan-300 border border-cyan-500/30">
         <Anchor className="w-4 h-4 text-amber-400" />
-        <span>Click near river to drop a virtual dam — <strong>Queries output_hh.tif GeoTIFF live</strong>.</span>
+        <span>Click near river to drop a virtual dam — <strong>Snaps to real OSM river network</strong>.</span>
       </div>
 
       {/* Native Leaflet Container DOM Element */}
