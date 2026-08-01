@@ -59,7 +59,9 @@ export default function MapView({
   // Real river network state
   const [riverGeoJSON, setRiverGeoJSON] = useState(null);
   const [riverIntersections, setRiverIntersections] = useState([]);
+  const [exclusionZones, setExclusionZones] = useState(null);
   const [showIntersections, setShowIntersections] = useState(true);
+  const [showExclusionZones, setShowExclusionZones] = useState(true);
   const riverCoordPoolRef = useRef(HIGH_RES_RIVER_MEANDER);
 
   // Fetch real river network GeoJSON from FastAPI backend
@@ -99,8 +101,21 @@ export default function MapView({
       }
     }
 
+    async function fetchExclusionZones() {
+      try {
+        const res = await fetch('http://127.0.0.1:8000/api/exclusion-zones');
+        if (res.ok) {
+          const data = await res.json();
+          setExclusionZones(data);
+        }
+      } catch (err) {
+        console.warn('Exclusion zones offline');
+      }
+    }
+
     fetchRiverNetwork();
     fetchIntersections();
+    fetchExclusionZones();
   }, []);
 
   // Initialize Map Instance
@@ -170,7 +185,34 @@ export default function MapView({
       }).addTo(layerGroup);
     }
 
-    // 2. Real OSM River Network GeoJSON Layer (Option A)
+    // 1b. Water Body / Existing Dam Exclusion Zones
+    if (showExclusionZones && exclusionZones && exclusionZones.features) {
+      L.geoJSON(exclusionZones, {
+        style: {
+          color: '#F59E0B',
+          fillColor: '#F59E0B',
+          fillOpacity: 0.13,
+          weight: 2,
+          dashArray: '6,4'
+        },
+        onEachFeature: (feature, layer) => {
+          const name = feature.properties?.name || 'Exclusion Zone';
+          const reason = feature.properties?.reason || '';
+          layer.bindPopup(`
+            <div style="font-size:11px; color:#E2E8F0; padding:4px; min-width:200px">
+              <strong style="color:#F59E0B">⚠ ${name}</strong><br/>
+              <span style="color:#94A3B8">${reason}</span><br/>
+              <span style="color:#F87171; font-size:10px; margin-top:4px; display:block">
+                ✗ No check dam sites placed inside this zone
+              </span>
+            </div>
+          `);
+          layer.bindTooltip(`⚠ ${name}`, { sticky: true, className: 'exclusion-tooltip' });
+        }
+      }).addTo(layerGroup);
+    }
+
+
     if (layers.riverPath) {
       if (riverGeoJSON && riverGeoJSON.features && riverGeoJSON.features.length > 0) {
         // Render real OSM river lines — glow effect with two passes
@@ -285,7 +327,7 @@ export default function MapView({
 
       customMarker.bindPopup(popupContent).addTo(layerGroup);
     }
-  }, [layers, dams, customDam, onSelectDam, riverGeoJSON, riverIntersections, showIntersections]);
+  }, [layers, dams, customDam, onSelectDam, riverGeoJSON, riverIntersections, showIntersections, exclusionZones, showExclusionZones]);
 
   // Fly to selected dam
   useEffect(() => {
@@ -355,6 +397,16 @@ export default function MapView({
           />
         </label>
 
+        <label className="flex items-center justify-between gap-2 cursor-pointer hover:text-amber-300">
+          <span className="flex items-center gap-1">⚠ Exclusion Zones</span>
+          <input 
+            type="checkbox" 
+            checked={showExclusionZones} 
+            onChange={(e) => setShowExclusionZones(e.target.checked)}
+            className="accent-amber-400"
+          />
+        </label>
+
         {/* River network status indicator */}
         <div className="pt-1 border-t border-slate-700/40 text-[10px]">
           <div className={`flex items-center gap-1 ${riverGeoJSON ? 'text-emerald-400' : 'text-amber-400'}`}>
@@ -365,6 +417,12 @@ export default function MapView({
             <div className="flex items-center gap-1 text-purple-400 mt-0.5">
               <div className="w-1.5 h-1.5 rounded-full bg-purple-400"></div>
               {riverIntersections.length} tributary confluence nodes
+            </div>
+          )}
+          {exclusionZones && (
+            <div className="flex items-center gap-1 text-amber-400 mt-0.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+              {exclusionZones.features?.length || 0} exclusion zones active
             </div>
           )}
         </div>

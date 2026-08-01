@@ -7,6 +7,43 @@ from typing import Dict, Any, List, Tuple
 # File location for Digital Elevation Model (DEM) raster file
 DEM_FILE_PATH = "E:/output_hh.tif"
 
+# ─── Known Water Body Exclusion Zones ────────────────────────────────────────
+# These are existing lakes, tanks, and reservoirs along the Kollidam basin.
+# The algorithm will NOT place candidate check-dam sites inside these areas
+# since the storage capacity already exists there.
+WATER_BODY_EXCLUSION_ZONES = [
+    {
+        "name": "Veeranam Lake",
+        "lat_min": 11.26, "lat_max": 11.36,
+        "lng_min": 79.43, "lng_max": 79.57,
+        "reason": "Existing large irrigation tank — no check dam needed"
+    },
+    {
+        "name": "Kollidam Barrage / Mukkombu Anicut Backwater",
+        "lat_min": 10.85, "lat_max": 10.92,
+        "lng_min": 78.58, "lng_max": 78.65,
+        "reason": "Existing anicut regulator infrastructure already present"
+    },
+    {
+        "name": "Kallanai (Grand Anicut) Backwater Pool",
+        "lat_min": 10.81, "lat_max": 10.86,
+        "lng_min": 78.79, "lng_max": 78.86,
+        "reason": "Historic Grand Anicut dam — existing structure, no new dam needed"
+    },
+    {
+        "name": "Lower Anicut Backwater Zone",
+        "lat_min": 11.10, "lat_max": 11.18,
+        "lng_min": 79.41, "lng_max": 79.50,
+        "reason": "Existing Lower Anicut weir and its backwater pool"
+    },
+    {
+        "name": "Pichavaram Coastal Wetlands",
+        "lat_min": 11.38, "lat_max": 11.52,
+        "lng_min": 79.75, "lng_max": 79.90,
+        "reason": "Protected mangrove wetland zone — construction prohibited"
+    }
+]
+
 class DEMProcessor:
     """
     Reads ground elevation data (30m resolution), calculates terrain slope 
@@ -111,6 +148,17 @@ class DEMProcessor:
         except Exception:
             return (0.8, 180.0)
 
+    def is_inside_exclusion_zone(self, lat: float, lng: float) -> dict:
+        """
+        Returns the exclusion zone if a coordinate falls inside a known water body / existing dam.
+        Returns None if the coordinate is safe to place a check dam.
+        """
+        for zone in WATER_BODY_EXCLUSION_ZONES:
+            if (zone["lat_min"] <= lat <= zone["lat_max"] and
+                    zone["lng_min"] <= lng <= zone["lng_max"]):
+                return zone
+        return None
+
     def extract_dynamic_candidate_sites(
         self, 
         meander_coords: List[List[float]], 
@@ -119,13 +167,22 @@ class DEMProcessor:
         """
         Scans river coordinates using elevation data to find flat, 
         suitable places for building water structures.
+        Automatically excludes any point inside a known lake, tank, or existing dam.
         """
         if not meander_coords:
             return []
 
         collected_points = []
+        excluded_count = 0
         for point_idx, point_coords in enumerate(meander_coords):
             lat, lng = point_coords[0], point_coords[1]
+
+            # Skip points inside known water body exclusion zones
+            exclusion = self.is_inside_exclusion_zone(lat, lng)
+            if exclusion:
+                excluded_count += 1
+                continue
+
             height_m = self.get_elevation_at_point(lat, lng)
             slope_deg, aspect_deg = self.calculate_slope_and_aspect(lat, lng)
             
@@ -137,6 +194,9 @@ class DEMProcessor:
                 "slope": slope_deg,
                 "aspect": aspect_deg
             })
+
+        if excluded_count > 0:
+            print(f"[DEMProcessor] Excluded {excluded_count} coords inside water body zones")
 
         # Sort points to prioritize gentle slopes and lower heights
         collected_points.sort(key=lambda item: (item["slope"], item["elev"]))

@@ -4,7 +4,7 @@ from sklearn.cluster import KMeans
 from sklearn.ensemble import RandomForestRegressor
 from typing import List, Dict, Any
 
-from backend.dem_processor import dem_processor
+from backend.dem_processor import dem_processor, WATER_BODY_EXCLUSION_ZONES
 from backend.soil_processor import soil_processor
 from backend.hydrology_calculator import HA_TO_ACRES, hydrology_calc
 
@@ -18,11 +18,19 @@ class MLEngine:
         self.regressor = RandomForestRegressor(n_estimators=50, random_state=42)
 
     def extract_features(self, meander_coords: List[List[float]]) -> tuple:
-        """Reads terrain elevation, slope, aspect, and soil values for each point along the river."""
+        """Reads terrain elevation, slope, aspect, and soil values for each point along the river.
+        Automatically skips any point inside a known water body / existing dam exclusion zone."""
         feature_matrix = []
         point_details_list = []
+        skipped = 0
         for index_pos, point in enumerate(meander_coords):
             lat, lng = point[0], point[1]
+
+            # Skip points inside known water body / existing infrastructure zones
+            if dem_processor.is_inside_exclusion_zone(lat, lng):
+                skipped += 1
+                continue
+
             height_m = dem_processor.get_elevation_at_point(lat, lng)
             slope_deg, aspect_deg = dem_processor.calculate_slope_and_aspect(lat, lng)
             
@@ -42,6 +50,8 @@ class MLEngine:
                 "hsg": soil_info["hsg"],
                 "index": index_pos
             })
+        if skipped > 0:
+            print(f"[MLEngine] Skipped {skipped} points inside water body exclusion zones")
         return np.array(feature_matrix), point_details_list
 
     def predict_kmeans(self, meander_coords: List[List[float]]) -> List[Dict[str, Any]]:

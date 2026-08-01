@@ -138,6 +138,7 @@ def extract_features(lat: float = Query(...), lng: float = Query(...)):
     height_m = dem_processor.get_elevation_at_point(lat, lng)
     slope_deg, aspect_deg = dem_processor.calculate_slope_and_aspect(lat, lng)
     soil_details = soil_processor.get_soil_at_point(lat, lng)
+    exclusion = dem_processor.is_inside_exclusion_zone(lat, lng)
     return {
         "lat": lat,
         "lng": lng,
@@ -145,8 +146,33 @@ def extract_features(lat: float = Query(...), lng: float = Query(...)):
         "slope_deg": slope_deg,
         "aspect_deg": aspect_deg,
         "soil_hsg": soil_details["hsg"],
-        "ksat_mm_hr": soil_details["ksat_mm_hr"]
+        "ksat_mm_hr": soil_details["ksat_mm_hr"],
+        "in_exclusion_zone": exclusion["name"] if exclusion else None
     }
+
+@app.get("/api/exclusion-zones")
+def get_exclusion_zones():
+    """Returns known water body / existing dam exclusion zones as GeoJSON polygons for map display."""
+    from backend.dem_processor import WATER_BODY_EXCLUSION_ZONES
+    features = []
+    for zone in WATER_BODY_EXCLUSION_ZONES:
+        # Build a rectangular polygon from the bounding box
+        lat_min, lat_max = zone["lat_min"], zone["lat_max"]
+        lng_min, lng_max = zone["lng_min"], zone["lng_max"]
+        polygon_coords = [[
+            [lng_min, lat_min], [lng_max, lat_min],
+            [lng_max, lat_max], [lng_min, lat_max],
+            [lng_min, lat_min]  # close the ring
+        ]]
+        features.append({
+            "type": "Feature",
+            "geometry": {"type": "Polygon", "coordinates": polygon_coords},
+            "properties": {
+                "name": zone["name"],
+                "reason": zone["reason"]
+            }
+        })
+    return {"type": "FeatureCollection", "features": features}
 
 
 # ─── River Network Endpoints ─────────────────────────────────────────────────
